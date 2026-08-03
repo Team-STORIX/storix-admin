@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react'
 import { getAdminProfile } from '@/lib/api/auth.api'
 
 type MenuItem = {
-  href?: string
+  href: string
   label: string
   icon: string
   children?: Array<{ href: string; label: string }>
@@ -14,12 +14,12 @@ type MenuItem = {
 
 const menuItems: MenuItem[] = [
   {
-    label: '이벤트 관리',
+    href: '/event/in-app',
+    label: '인앱 이벤트 관리',
     icon: 'E',
     children: [
-      { href: '/event/in-app', label: '인앱 이벤트 관리' },
       { href: '/event/push', label: '푸시 알림 관리' },
-      { href: '/event/popup', label: '팝업 관리' },
+      { href: '/event/popup', label: '팝업(=모달) 관리' },
       { href: '/event/banner', label: '배너 관리' },
     ],
   },
@@ -44,9 +44,6 @@ export function Sidebar() {
     nickName: string
     email: string
   } | null>(null)
-  const [expandedMenus, setExpandedMenus] = useState<Record<string, boolean>>({
-    '이벤트 관리': true, // 기본적으로 이벤트 관리는 열려있음
-  })
 
   useEffect(() => {
     let mounted = true
@@ -68,13 +65,6 @@ export function Sidebar() {
     }
   }, [])
 
-  const toggleMenu = (label: string) => {
-    setExpandedMenus((prev) => ({
-      ...prev,
-      [label]: !prev[label],
-    }))
-  }
-
   const profileImage = profile?.nickName ? profileImages[profile.nickName] : undefined
 
   return (
@@ -88,64 +78,36 @@ export function Sidebar() {
         <nav className="sidebar-nav" aria-label="관리자 메뉴">
           {menuItems.map((item) => {
             const hasChildren = item.children && item.children.length > 0
-            const isExpanded = expandedMenus[item.label]
-            const isActive = item.href ? pathname === item.href : false
+            const isActive = pathname === item.href
             const hasActiveChild = hasChildren
               ? item.children!.some((child) => pathname === child.href)
               : false
 
             return (
               <div key={item.label} className="sidebar-menu-item">
+                <Link
+                  className={`sidebar-menu-link ${isActive || hasActiveChild ? 'active' : ''}`}
+                  href={item.href}
+                >
+                  <span aria-hidden="true">{item.icon}</span>
+                  {item.label}
+                </Link>
                 {hasChildren ? (
-                  <>
-                    <button
-                      className={`sidebar-menu-button ${hasActiveChild ? 'has-active-child' : ''}`}
-                      onClick={() => toggleMenu(item.label)}
-                    >
-                      <span aria-hidden="true">{item.icon}</span>
-                      {item.label}
-                      <svg
-                        className={`menu-arrow ${isExpanded ? 'expanded' : ''}`}
-                        width="12"
-                        height="12"
-                        viewBox="0 0 12 12"
-                        fill="none"
-                      >
-                        <path
-                          d="M3 4.5L6 7.5L9 4.5"
-                          stroke="currentColor"
-                          strokeWidth="1.5"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                      </svg>
-                    </button>
-                    {isExpanded && (
-                      <div className="sidebar-submenu">
-                        {item.children!.map((child) => {
-                          const isChildActive = pathname === child.href
-                          return (
-                            <Link
-                              key={child.href}
-                              className={`sidebar-submenu-link ${isChildActive ? 'active' : ''}`}
-                              href={child.href}
-                            >
-                              {child.label}
-                            </Link>
-                          )
-                        })}
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <Link
-                    className={`sidebar-menu-link ${isActive ? 'active' : ''}`}
-                    href={item.href!}
-                  >
-                    <span aria-hidden="true">{item.icon}</span>
-                    {item.label}
-                  </Link>
-                )}
+                  <div className="sidebar-submenu">
+                    {item.children!.map((child) => {
+                      const isChildActive = pathname === child.href
+                      return (
+                        <Link
+                          key={child.href}
+                          className={`sidebar-submenu-link ${isChildActive ? 'active' : ''}`}
+                          href={child.href}
+                        >
+                          {child.label}
+                        </Link>
+                      )
+                    })}
+                  </div>
+                ) : null}
               </div>
             )
           })}

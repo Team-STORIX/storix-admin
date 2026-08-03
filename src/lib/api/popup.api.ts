@@ -21,11 +21,11 @@ export type AdminPopup = {
 }
 
 export type AdminPopupPayload = {
-  targetId?: number
-  contentTargetType?: PopupContentTargetType
-  exposurePolicy?: PopupExposurePolicy
+  targetId: number
+  contentTargetType: PopupContentTargetType
+  exposurePolicy: PopupExposurePolicy
   popupTitle: string
-  content?: string
+  content: string
   ctaText: string
   displayStartAt: string
   displayEndAt: string
@@ -48,9 +48,15 @@ export type AdminPopupListResult = {
   hasNext: boolean
 }
 
-export const getAdminPopups = async (page = 0): Promise<ApiEnvelope<AdminPopupListResult>> => {
+export const getAdminPopups = async (
+  page = 0,
+  keyword?: string,
+): Promise<ApiEnvelope<AdminPopupListResult>> => {
   const response = await apiClient.get('/api/v1/admin/popups', {
-    params: { page },
+    params: {
+      page,
+      ...(keyword ? { keyword } : {}),
+    },
   })
   return response.data
 }

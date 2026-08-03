@@ -453,7 +453,7 @@ select {
   top: 0;
   left: 0;
   width: auto;
-  height: 100px;
+  height: 120px;
   object-fit: contain;
   will-change: transform;
   user-select: none;
@@ -1832,6 +1832,18 @@ select {
 .field textarea:focus {
   border-color: #ec1e79;
   box-shadow: 0 0 0 3px #fde7f1;
+}
+
+.reward-row-list {
+  display: grid;
+  gap: 8px;
+}
+
+.reward-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 8px;
+  align-items: center;
 }
 
 .sanction-option-list {

@@ -2,6 +2,7 @@ import { apiClient } from './axios-instance'
 
 export type AppEventStatus = 'SCHEDULED' | 'ACTIVE' | 'ENDED' | 'CANCELED'
 export type PromotionType = 'PUSH' | 'POPUP' | 'BANNER'
+export type AttendanceRewards = Record<string, number>
 
 export type AppEvent = {
   id: number
@@ -12,6 +13,7 @@ export type AppEvent = {
   status: AppEventStatus
   hasWinner: boolean
   promotionTypes: PromotionType[]
+  attendanceRewards: AttendanceRewards
   createdAt: string
   updatedAt: string
 }
@@ -23,6 +25,7 @@ export type AppEventPayload = {
   endAt: string
   hasWinner: boolean
   promotionTypes: PromotionType[]
+  attendanceRewards: AttendanceRewards
 }
 
 export type ApiEnvelope<T> = {
@@ -42,9 +45,15 @@ export type AppEventListResult = {
   hasNext: boolean
 }
 
-export const getAppEvents = async (page = 0): Promise<ApiEnvelope<AppEventListResult>> => {
+export const getAppEvents = async (
+  page = 0,
+  keyword?: string,
+): Promise<ApiEnvelope<AppEventListResult>> => {
   const response = await apiClient.get('/api/v1/admin/app-events', {
-    params: { page },
+    params: {
+      page,
+      ...(keyword ? { keyword } : {}),
+    },
   })
   return response.data
 }

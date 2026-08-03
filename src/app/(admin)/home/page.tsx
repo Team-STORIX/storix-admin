@@ -23,8 +23,8 @@ type Sprite = {
   vy: number
 }
 
-const IMAGE_HEIGHT = 100
-const DEFAULT_IMAGE_WIDTH = 75
+const IMAGE_HEIGHT = 120
+const DEFAULT_IMAGE_WIDTH = 90
 const MIN_SPEED = 0.6
 const MAX_SPEED = 1.4
 const COLLISION_PADDING = 4

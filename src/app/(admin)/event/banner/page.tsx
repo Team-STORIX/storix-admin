@@ -142,13 +142,19 @@ export default function BannerPage() {
       return
     }
 
+    const targetId = Number(form.targetId)
+    if (!Number.isInteger(targetId) || targetId <= 0) {
+      alert('연결 앱 이벤트 ID는 양의 정수로 입력해주세요.')
+      return
+    }
+
     if (modalMode === 'create' && !form.file) {
       alert('배너 이미지를 선택해주세요.')
       return
     }
 
     const payload: AdminBannerPayload = {
-      targetId: Number(form.targetId),
+      targetId,
       contentTargetType: form.contentTargetType,
       bannerTitle: form.bannerTitle.trim(),
       displayStartAt: toIsoString(form.displayStartAt),
@@ -240,9 +246,10 @@ export default function BannerPage() {
     <div className="event-page-container">
       <div className="page-head">
         <div>
-          <h1>이벤트 관리</h1>
-          <p className="page-sub">배너 관리</p>
+          <h1>배너 관리</h1>
+          <p className="page-sub">인앱 이벤트에 연결되는 배너를 생성하고 노출 기간과 이미지를 관리합니다.</p>
         </div>
+        <span className="filter-note">전체 {totalElements}건</span>
       </div>
 
       {errorMessage ? <p className="login-message">{errorMessage}</p> : null}
@@ -285,16 +292,23 @@ export default function BannerPage() {
                   </button>
                 </strong>
 
-                <span>링크</span>
-                <strong>{selectedBanner.targetId ? `www.html` : '-'}</strong>
+                <span>연결 대상</span>
+                <strong>
+                  {targetTypeLabels[selectedBanner.contentTargetType]} {selectedBanner.targetId}
+                </strong>
               </div>
 
-              <button className="dark-back-button" onClick={() => setSelectedBanner(null)} type="button">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="m15 18-6-6 6-6" />
-                </svg>
-                목록으로
-              </button>
+              <div className="action-buttons">
+                <button className="btn-approve" onClick={() => void openEditModal(selectedBanner.id)} type="button">
+                  수정
+                </button>
+                <button className="dark-back-button" onClick={() => setSelectedBanner(null)} type="button">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="m15 18-6-6 6-6" />
+                  </svg>
+                  목록으로
+                </button>
+              </div>
             </>
           )}
         </section>
@@ -444,14 +458,14 @@ export default function BannerPage() {
   )
 }
 
+function toIsoString(value: string) {
+  return new Date(value).toISOString()
+}
+
 function toDatetimeLocalValue(value: string) {
   const date = new Date(value)
   const offset = date.getTimezoneOffset() * 60_000
   return new Date(date.getTime() - offset).toISOString().slice(0, 16)
-}
-
-function toIsoString(value: string) {
-  return new Date(value).toISOString()
 }
 
 function bannerStatusClass(status: BannerStatus) {

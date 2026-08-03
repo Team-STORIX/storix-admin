@@ -1,6 +1,6 @@
 'use client'
 
-import { FormEvent, Fragment, useEffect, useMemo, useState } from 'react'
+import { FormEvent, Fragment, useEffect, useState } from 'react'
 import { AxiosError } from 'axios'
 import {
   cancelAdminPopup,
@@ -60,16 +60,11 @@ const exposurePolicyLabels: Record<PopupExposurePolicy, string> = {
   ALWAYS_DURING_PERIOD: '기간 내 항상 노출',
 }
 
-const normalizeUrl = (value: string) => {
-  const trimmed = value.trim()
-  if (!trimmed) return ''
-  return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`
-}
-
 export default function PopupPage() {
   const [popups, setPopups] = useState<AdminPopup[]>([])
   const [selectedPopup, setSelectedPopup] = useState<AdminPopup | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
+  const [appliedKeyword, setAppliedKeyword] = useState('')
   const [currentPage, setCurrentPage] = useState(0)
   const [totalPages, setTotalPages] = useState(0)
   const [totalElements, setTotalElements] = useState(0)
@@ -80,24 +75,11 @@ export default function PopupPage() {
   const [modalMode, setModalMode] = useState<'create' | 'edit' | null>(null)
   const [form, setForm] = useState<FormState>(emptyForm)
 
-  const filteredPopups = useMemo(
-    () =>
-      popups.filter(
-        (popup) =>
-          !searchQuery ||
-          popup.popupTitle.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          popup.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          String(popup.id).includes(searchQuery) ||
-          String(popup.targetId).includes(searchQuery),
-      ),
-    [popups, searchQuery],
-  )
-
-  const fetchPopups = async (page = currentPage) => {
+  const fetchPopups = async (page = currentPage, keyword = appliedKeyword) => {
     setLoading(true)
     setErrorMessage('')
     try {
-      const response = await getAdminPopups(page)
+      const response = await getAdminPopups(page, keyword.trim() || undefined)
       if (response.isSuccess) {
         setPopups(response.result.content)
         setCurrentPage(response.result.page)
@@ -112,8 +94,14 @@ export default function PopupPage() {
   }
 
   useEffect(() => {
-    void fetchPopups(currentPage)
-  }, [currentPage])
+    void fetchPopups(currentPage, appliedKeyword)
+  }, [currentPage, appliedKeyword])
+
+  const handleSearchSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setCurrentPage(0)
+    setAppliedKeyword(searchQuery)
+  }
 
   const handleSelectPopup = async (popupId: number) => {
     if (selectedPopup?.id === popupId) {
@@ -170,8 +158,14 @@ export default function PopupPage() {
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
 
-    if (!form.popupTitle.trim() || !form.ctaText.trim() || !form.displayStartAt || !form.displayEndAt) {
-      alert('제목, 링크, 노출 기간을 모두 입력해주세요.')
+    if (!form.targetId.trim() || !form.popupTitle.trim() || !form.content.trim() || !form.ctaText.trim() || !form.displayStartAt || !form.displayEndAt) {
+      alert('연결 앱 이벤트 ID, 제목, 내용, CTA, 노출 기간을 모두 입력해주세요.')
+      return
+    }
+
+    const targetId = Number(form.targetId)
+    if (!Number.isInteger(targetId) || targetId <= 0) {
+      alert('연결 앱 이벤트 ID는 양의 정수로 입력해주세요.')
       return
     }
 
@@ -181,9 +175,12 @@ export default function PopupPage() {
     }
 
     const payload: AdminPopupPayload = {
+      targetId,
+      contentTargetType: form.contentTargetType,
+      exposurePolicy: form.exposurePolicy,
       popupTitle: form.popupTitle.trim(),
-      content: form.popupTitle.trim(),
-      ctaText: normalizeUrl(form.ctaText),
+      content: form.content.trim(),
+      ctaText: form.ctaText.trim(),
       displayStartAt: toLocalDateTimeString(form.displayStartAt),
       displayEndAt: toLocalDateTimeString(form.displayEndAt),
     }
@@ -207,7 +204,7 @@ export default function PopupPage() {
 
       setModalMode(null)
       setForm(emptyForm)
-      await fetchPopups(modalMode === 'create' ? 0 : currentPage)
+      await fetchPopups(modalMode === 'create' ? 0 : currentPage, appliedKeyword)
     } catch (error) {
       const axiosError = error as AxiosError<ApiErrorBody>
       const serverMessage = axiosError.response?.data?.message
@@ -234,7 +231,7 @@ export default function PopupPage() {
       const response = await cancelAdminPopup(popup.id)
       if (response.isSuccess) {
         setSelectedPopup(response.result)
-        await fetchPopups(currentPage)
+        await fetchPopups(currentPage, appliedKeyword)
       }
     } catch {
       alert('팝업 강제 종료에 실패했습니다.')
@@ -300,19 +297,19 @@ export default function PopupPage() {
       </div>
 
       <div className="toolbar">
-        <div className="search-box">
+        <form className="search-box" onSubmit={handleSearchSubmit}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="11" cy="11" r="7" />
             <path d="m21 21-4.3-4.3" />
           </svg>
           <input
             type="text"
-            placeholder="팝업명 · 내용 · ID 검색"
+            placeholder="팝업명 검색"
             value={searchQuery}
             onChange={(event) => setSearchQuery(event.target.value)}
           />
-        </div>
-        <span className="filter-note">전체 {searchQuery ? filteredPopups.length : totalElements}건</span>
+        </form>
+        <span className="filter-note">전체 {totalElements}건</span>
       </div>
 
       {errorMessage ? <p className="login-message">{errorMessage}</p> : null}
@@ -335,12 +332,12 @@ export default function PopupPage() {
               <tr>
                 <td colSpan={7}>로딩 중...</td>
               </tr>
-            ) : filteredPopups.length === 0 ? (
+            ) : popups.length === 0 ? (
               <tr>
                 <td colSpan={7}>등록된 팝업이 없습니다.</td>
               </tr>
             ) : (
-              filteredPopups.map((popup) => {
+              popups.map((popup) => {
                 const isOpen = selectedPopup?.id === popup.id
 
                 return (
@@ -456,6 +453,37 @@ export default function PopupPage() {
 
             <div className="modal-body">
               <label className="field">
+                <span>연결 앱 이벤트 ID</span>
+                <input
+                  inputMode="numeric"
+                  placeholder="appEventId 입력"
+                  value={form.targetId}
+                  onChange={(event) => setForm((current) => ({ ...current, targetId: event.target.value }))}
+                />
+              </label>
+              <label className="field">
+                <span>연결 대상</span>
+                <select
+                  value={form.contentTargetType}
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, contentTargetType: event.target.value as PopupContentTargetType }))
+                  }
+                >
+                  <option value="APP_EVENT">앱 이벤트</option>
+                </select>
+              </label>
+              <label className="field">
+                <span>노출 정책</span>
+                <select
+                  value={form.exposurePolicy}
+                  onChange={(event) =>
+                    setForm((current) => ({ ...current, exposurePolicy: event.target.value as PopupExposurePolicy }))
+                  }
+                >
+                  <option value="ALWAYS_DURING_PERIOD">기간 내 항상 노출</option>
+                </select>
+              </label>
+              <label className="field">
                 <span>제목</span>
                 <input
                   placeholder="관리용 팝업 제목 입력"
@@ -480,9 +508,17 @@ export default function PopupPage() {
                 </div>
               </label>
               <label className="field">
-                <span>링크</span>
+                <span>내용</span>
                 <input
-                  placeholder="CTA 버튼 랜딩 링크 입력"
+                  placeholder="팝업 내용 입력"
+                  value={form.content}
+                  onChange={(event) => setForm((current) => ({ ...current, content: event.target.value }))}
+                />
+              </label>
+              <label className="field">
+                <span>CTA</span>
+                <input
+                  placeholder="CTA 버튼 문구 입력"
                   value={form.ctaText}
                   onChange={(event) => setForm((current) => ({ ...current, ctaText: event.target.value }))}
                 />

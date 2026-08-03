@@ -1,6 +1,6 @@
 'use client'
 
-import { FormEvent, Fragment, useEffect, useMemo, useState } from 'react'
+import { FormEvent, Fragment, useEffect, useState } from 'react'
 import { AxiosError } from 'axios'
 import {
   cancelAppEvent,
@@ -11,6 +11,7 @@ import {
   type AppEvent,
   type AppEventPayload,
   type AppEventStatus,
+  type AttendanceRewards,
   type PromotionType,
 } from '@/lib/api/app-event.api'
 
@@ -21,6 +22,12 @@ type FormState = {
   endAt: string
   hasWinner: boolean
   promotionTypes: PromotionType[]
+  rewardRows: RewardRow[]
+}
+
+type RewardRow = {
+  condition: string
+  value: string
 }
 
 const emptyForm: FormState = {
@@ -30,6 +37,7 @@ const emptyForm: FormState = {
   endAt: '',
   hasWinner: false,
   promotionTypes: [],
+  rewardRows: [],
 }
 
 type ApiErrorBody = {
@@ -66,10 +74,13 @@ const promotionDesigns: Record<PromotionType, { label: string; className: string
 
 const promotionTypes: PromotionType[] = ['PUSH', 'POPUP', 'BANNER']
 
+const emptyRewardRow = (): RewardRow => ({ condition: '', value: '' })
+
 export default function InAppEventPage() {
   const [events, setEvents] = useState<AppEvent[]>([])
   const [selectedEvent, setSelectedEvent] = useState<AppEvent | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
+  const [appliedKeyword, setAppliedKeyword] = useState('')
   const [currentPage, setCurrentPage] = useState(0)
   const [totalPages, setTotalPages] = useState(0)
   const [totalElements, setTotalElements] = useState(0)
@@ -80,22 +91,11 @@ export default function InAppEventPage() {
   const [modalMode, setModalMode] = useState<'create' | 'edit' | null>(null)
   const [form, setForm] = useState<FormState>(emptyForm)
 
-  const filteredEvents = useMemo(
-    () =>
-      events.filter(
-        (event) =>
-          !searchQuery ||
-          event.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-          String(event.id).includes(searchQuery),
-      ),
-    [events, searchQuery],
-  )
-
-  const fetchEvents = async (page = currentPage) => {
+  const fetchEvents = async (page = currentPage, keyword = appliedKeyword) => {
     setLoading(true)
     setErrorMessage('')
     try {
-      const response = await getAppEvents(page)
+      const response = await getAppEvents(page, keyword.trim() || undefined)
       if (response.isSuccess) {
         setEvents(response.result.content)
         setCurrentPage(response.result.page)
@@ -116,8 +116,14 @@ export default function InAppEventPage() {
   }
 
   useEffect(() => {
-    void fetchEvents(currentPage)
-  }, [currentPage])
+    void fetchEvents(currentPage, appliedKeyword)
+  }, [currentPage, appliedKeyword])
+
+  const handleSearchSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setCurrentPage(0)
+    setAppliedKeyword(searchQuery)
+  }
 
   const handleSelectEvent = async (appEventId: number) => {
     if (selectedEvent?.id === appEventId) {
@@ -161,6 +167,7 @@ export default function InAppEventPage() {
       endAt: toDatetimeLocalValue(event.endAt),
       hasWinner: event.hasWinner,
       promotionTypes: event.promotionTypes,
+      rewardRows: rewardsToRows(event.attendanceRewards),
     })
     setModalMode('edit')
   }
@@ -184,6 +191,12 @@ export default function InAppEventPage() {
       return
     }
 
+    const attendanceRewards = parseRewardRows(form.hasWinner ? form.rewardRows : [])
+    if (!attendanceRewards.ok) {
+      alert(attendanceRewards.message)
+      return
+    }
+
     const payload: AppEventPayload = {
       name: form.name.trim(),
       description: form.description.trim(),
@@ -191,6 +204,7 @@ export default function InAppEventPage() {
       endAt: toLocalDateTimeString(form.endAt),
       hasWinner: form.hasWinner,
       promotionTypes: form.promotionTypes,
+      attendanceRewards: attendanceRewards.value,
     }
 
     setSaving(true)
@@ -210,7 +224,7 @@ export default function InAppEventPage() {
 
       setModalMode(null)
       setForm(emptyForm)
-      await fetchEvents(modalMode === 'create' ? 0 : currentPage)
+      await fetchEvents(modalMode === 'create' ? 0 : currentPage, appliedKeyword)
     } catch (error) {
       const errorInfo = getApiErrorInfo(error)
       console.error(modalMode === 'edit' ? '앱 이벤트 수정 실패:' : '앱 이벤트 생성 실패:', {
@@ -235,7 +249,7 @@ export default function InAppEventPage() {
       const response = await cancelAppEvent(event.id)
       if (response.isSuccess) {
         setSelectedEvent(response.result)
-        await fetchEvents(currentPage)
+        await fetchEvents(currentPage, appliedKeyword)
       }
     } catch (error) {
       const errorInfo = getApiErrorInfo(error)
@@ -257,6 +271,33 @@ export default function InAppEventPage() {
       promotionTypes: current.promotionTypes.includes(type)
         ? current.promotionTypes.filter((item) => item !== type)
         : [...current.promotionTypes, type],
+    }))
+  }
+
+  const updateRewardRow = (
+    index: number,
+    field: keyof RewardRow,
+    value: string,
+  ) => {
+    setForm((current) => ({
+      ...current,
+      rewardRows: current.rewardRows.map((row, rowIndex) =>
+        rowIndex === index ? { ...row, [field]: value } : row,
+      ),
+    }))
+  }
+
+  const addRewardRow = () => {
+    setForm((current) => ({
+      ...current,
+      rewardRows: [...current.rewardRows, emptyRewardRow()],
+    }))
+  }
+
+  const removeRewardRow = (index: number) => {
+    setForm((current) => ({
+      ...current,
+      rewardRows: current.rewardRows.filter((_, rowIndex) => rowIndex !== index),
     }))
   }
 
@@ -305,8 +346,8 @@ export default function InAppEventPage() {
     <div className="event-page-container">
       <div className="page-head">
         <div>
-          <h1>이벤트 관리</h1>
-          <p className="page-sub">인앱 이벤트 관리</p>
+          <h1>인앱 이벤트 관리</h1>
+          <p className="page-sub">푸시 알림, 팝업, 배너에 연결할 앱 이벤트를 생성하고 관리합니다.</p>
         </div>
         <button className="btn-primary" onClick={openCreateModal} type="button">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
@@ -317,19 +358,19 @@ export default function InAppEventPage() {
       </div>
 
       <div className="toolbar">
-        <div className="search-box">
+        <form className="search-box" onSubmit={handleSearchSubmit}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="11" cy="11" r="7" />
             <path d="m21 21-4.3-4.3" />
           </svg>
           <input
             type="text"
-            placeholder="이벤트명 · appEventId 검색"
+            placeholder="이벤트명 검색"
             value={searchQuery}
             onChange={(event) => setSearchQuery(event.target.value)}
           />
-        </div>
-        <span className="filter-note">전체 {searchQuery ? filteredEvents.length : totalElements}건</span>
+        </form>
+        <span className="filter-note">전체 {totalElements}건</span>
       </div>
 
       {errorMessage ? <p className="login-message">{errorMessage}</p> : null}
@@ -351,12 +392,12 @@ export default function InAppEventPage() {
               <tr>
                 <td colSpan={eventColumns.length}>로딩 중...</td>
               </tr>
-            ) : filteredEvents.length === 0 ? (
+            ) : events.length === 0 ? (
               <tr>
                 <td colSpan={eventColumns.length}>등록된 앱 이벤트가 없습니다.</td>
               </tr>
             ) : (
-              filteredEvents.map((event) => {
+              events.map((event) => {
                 const isOpen = selectedEvent?.id === event.id
 
                 return (
@@ -426,6 +467,7 @@ export default function InAppEventPage() {
                                 <DetailRow label="설명" value={selectedEvent.description} />
                                 <DetailRow label="시작일시" value={formatDateTime(selectedEvent.startAt)} />
                                 <DetailRow label="종료일시" value={formatDateTime(selectedEvent.endAt)} />
+                                <DetailRow label="보상 설정" value={formatAttendanceRewards(selectedEvent.attendanceRewards)} />
                                 <DetailRow label="생성일시" value={formatDateTime(selectedEvent.createdAt)} />
                                 <DetailRow label="수정일시" value={formatDateTime(selectedEvent.updatedAt)} />
                               </>
@@ -502,13 +544,56 @@ export default function InAppEventPage() {
                 <input
                   type="checkbox"
                   checked={form.hasWinner}
-                  onChange={(event) => setForm((current) => ({ ...current, hasWinner: event.target.checked }))}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      hasWinner: event.target.checked,
+                      rewardRows:
+                        event.target.checked && current.rewardRows.length === 0
+                          ? [emptyRewardRow()]
+                          : current.rewardRows,
+                    }))
+                  }
                 />
                 <div className="checkbox-content">
                   <div className="checkbox-title">당첨자 안내 있음</div>
                   <div className="checkbox-desc">이벤트 종료 후 당첨자 안내가 필요한 이벤트입니다.</div>
                 </div>
               </label>
+
+              {form.hasWinner ? (
+                <div className="field wide">
+                  <span>이벤트 보상 설정</span>
+                  <div className="reward-row-list">
+                    {form.rewardRows.map((row, index) => (
+                      <div className="reward-row" key={index}>
+                        <input
+                          inputMode="numeric"
+                          placeholder="조건"
+                          value={row.condition}
+                          onChange={(event) => updateRewardRow(index, 'condition', event.target.value)}
+                        />
+                        <input
+                          inputMode="numeric"
+                          placeholder="보상값"
+                          value={row.value}
+                          onChange={(event) => updateRewardRow(index, 'value', event.target.value)}
+                        />
+                        <button
+                          className="table-action-button"
+                          onClick={() => removeRewardRow(index)}
+                          type="button"
+                        >
+                          삭제
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <button className="table-action-button" onClick={addRewardRow} type="button">
+                    보상 추가
+                  </button>
+                </div>
+              ) : null}
             </div>
 
             <div className="modal-footer">
@@ -551,6 +636,54 @@ function toDatetimeLocalValue(value: string) {
 
 function toLocalDateTimeString(value: string) {
   return value.replace('T', ' ')
+}
+
+function formatAttendanceRewards(rewards?: AttendanceRewards | null) {
+  const entries = Object.entries(rewards ?? {})
+  if (entries.length === 0) return '-'
+
+  return entries
+    .map(([condition, value]) => `조건 ${condition}: 보상 ${value}`)
+    .join(', ')
+}
+
+function rewardsToRows(rewards?: AttendanceRewards | null): RewardRow[] {
+  const rows = Object.entries(rewards ?? {}).map(([condition, value]) => ({
+    condition,
+    value: String(value),
+  }))
+
+  return rows.length > 0 ? rows : []
+}
+
+function parseRewardRows(rows: RewardRow[]):
+  | { ok: true; value: AttendanceRewards }
+  | { ok: false; message: string } {
+  const rewards: AttendanceRewards = {}
+
+  for (const row of rows) {
+    const condition = row.condition.trim()
+    const valueText = row.value.trim()
+
+    if (!condition && !valueText) continue
+
+    if (!condition || !valueText) {
+      return { ok: false, message: '보상 조건과 보상값을 모두 입력해주세요.' }
+    }
+
+    if (!/^\d+$/.test(condition)) {
+      return { ok: false, message: '보상 조건은 숫자로 입력해주세요.' }
+    }
+
+    const value = Number(valueText)
+    if (!Number.isFinite(value)) {
+      return { ok: false, message: '보상값은 숫자로 입력해주세요.' }
+    }
+
+    rewards[condition] = value
+  }
+
+  return { ok: true, value: rewards }
 }
 
 function formatDateMinute(value: string) {

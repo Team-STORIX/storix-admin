@@ -27,7 +27,6 @@ type FormState = {
   scheduledAt: string
   targetType: NotificationTargetType
   eventTargetId: string
-  targetLink: string
 }
 
 const emptyForm: FormState = {
@@ -37,9 +36,8 @@ const emptyForm: FormState = {
   targetAudience: 'ALL',
   sendType: 'IMMEDIATE',
   scheduledAt: '',
-  targetType: 'NONE',
+  targetType: 'APP_EVENT',
   eventTargetId: '',
-  targetLink: '',
 }
 
 const notificationTypeLabels: Record<NotificationType, string> = {
@@ -141,27 +139,6 @@ export default function PushNotificationPage() {
     setModalMode('create')
   }
 
-  const openEditModal = async (notificationId: number) => {
-    const detail =
-      selectedNotification?.id === notificationId
-        ? selectedNotification
-        : (await getAdminNotification(notificationId)).result
-
-    setSelectedNotification(detail)
-    setForm({
-      title: detail.title,
-      content: detail.content,
-      notificationType: detail.notificationType,
-      targetAudience: detail.targetAudience,
-      sendType: detail.sendType,
-      scheduledAt: detail.scheduledAt ? toDatetimeLocalValue(detail.scheduledAt) : '',
-      targetType: detail.targetType,
-      eventTargetId: detail.eventTargetId ? String(detail.eventTargetId) : '',
-      targetLink: detail.targetLink ?? '',
-    })
-    setModalMode('edit')
-  }
-
   const closeModal = () => {
     if (saving) return
     setModalMode(null)
@@ -181,6 +158,16 @@ export default function PushNotificationPage() {
       return
     }
 
+    let eventTargetId: number | null = null
+    if (form.targetType === 'APP_EVENT') {
+      const parsedEventTargetId = Number(form.eventTargetId)
+      if (!Number.isInteger(parsedEventTargetId) || parsedEventTargetId <= 0) {
+        alert('연결 앱 이벤트 ID는 양의 정수로 입력해주세요.')
+        return
+      }
+      eventTargetId = parsedEventTargetId
+    }
+
     const payload: AdminNotificationPayload = {
       title: form.title.trim(),
       content: form.content.trim(),
@@ -189,8 +176,8 @@ export default function PushNotificationPage() {
       sendType: form.sendType,
       scheduledAt: form.sendType === 'SCHEDULED' ? formatScheduledAt(form.scheduledAt) : null,
       targetType: form.targetType,
-      eventTargetId: form.targetType === 'APP_EVENT' ? Number(form.eventTargetId) : null,
-      targetLink: form.targetLink.trim() || null,
+      eventTargetId,
+      targetLink: null,
     }
 
     setSaving(true)
@@ -419,7 +406,6 @@ export default function PushNotificationPage() {
                                 <DetailRow label="예약 일시" value={selectedNotification.scheduledAt ? formatDateTime(selectedNotification.scheduledAt) : '즉시'} />
                                 <DetailRow label="타겟 유형" value={targetTypeLabels[selectedNotification.targetType] ?? selectedNotification.targetType} />
                                 <DetailRow label="이벤트 타겟 ID" value={selectedNotification.eventTargetId ? String(selectedNotification.eventTargetId) : '-'} />
-                                <DetailRow label="타겟 링크" value={selectedNotification.targetLink || '-'} />
                                 <DetailRow label="생성일시" value={formatDateTime(selectedNotification.createdAt)} />
                                 <DetailRow label="수정일시" value={formatDateTime(selectedNotification.updatedAt)} />
                               </>
@@ -464,13 +450,34 @@ export default function PushNotificationPage() {
                 />
               </label>
               <label className="field">
-                <span>링크</span>
-                <input
-                  value={form.targetLink}
-                  onChange={(event) => setForm((current) => ({ ...current, targetLink: event.target.value }))}
-                  placeholder="랜딩 하이퍼링크 입력"
-                />
+                <span>이동 대상</span>
+                <select
+                  value={form.targetType}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      targetType: event.target.value as NotificationTargetType,
+                      eventTargetId: event.target.value === 'APP_EVENT' ? current.eventTargetId : '',
+                    }))
+                  }
+                >
+                  <option value="APP_EVENT">앱 이벤트</option>
+                  <option value="NONE">없음</option>
+                </select>
               </label>
+              {form.targetType === 'APP_EVENT' ? (
+                <>
+                  <label className="field">
+                    <span>연결 앱 이벤트 ID</span>
+                    <input
+                      inputMode="numeric"
+                      value={form.eventTargetId}
+                      onChange={(event) => setForm((current) => ({ ...current, eventTargetId: event.target.value }))}
+                      placeholder="appEventId 입력"
+                    />
+                  </label>
+                </>
+              ) : null}
               <div className="field choice-field">
                 <span>발송 대상</span>
                 <div className="choice-group">
@@ -545,12 +552,6 @@ function DetailRow({ label, value }: { label: string; value: string }) {
 
 function formatDateTime(value: string) {
   return new Date(value).toLocaleString('ko-KR')
-}
-
-function toDatetimeLocalValue(value: string) {
-  const date = new Date(value)
-  const offset = date.getTimezoneOffset() * 60_000
-  return new Date(date.getTime() - offset).toISOString().slice(0, 16)
 }
 
 function formatScheduledAt(value: string) {
