@@ -8,12 +8,14 @@ import {
   drawAppEventWinners,
   getAppEvent,
   getAppEvents,
+  getAttendanceEventWinners,
   updateAppEvent,
   type AppEvent,
   type AppEventPayload,
   type AppEventStatus,
   type AppEventType,
   type AppEventWinnerDrawResult,
+  type AttendanceEventWinnerResult,
   type AttendanceRewards,
   type PromotionType,
 } from '@/lib/api/app-event.api'
@@ -101,8 +103,10 @@ export default function InAppEventPage() {
   const [detailLoading, setDetailLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [drawingWinners, setDrawingWinners] = useState(false)
+  const [loadingAttendanceWinners, setLoadingAttendanceWinners] = useState(false)
   const [winnerCount, setWinnerCount] = useState('')
   const [winnerDrawResult, setWinnerDrawResult] = useState<AppEventWinnerDrawResult | null>(null)
+  const [attendanceWinnerResult, setAttendanceWinnerResult] = useState<AttendanceEventWinnerResult | null>(null)
   const [errorMessage, setErrorMessage] = useState('')
   const [modalMode, setModalMode] = useState<'create' | 'edit' | null>(null)
   const [form, setForm] = useState<FormState>(emptyForm)
@@ -146,12 +150,14 @@ export default function InAppEventPage() {
       setSelectedEvent(null)
       setWinnerCount('')
       setWinnerDrawResult(null)
+      setAttendanceWinnerResult(null)
       return
     }
 
     setDetailLoading(true)
     setWinnerCount('')
     setWinnerDrawResult(null)
+    setAttendanceWinnerResult(null)
     setErrorMessage('')
     try {
       const response = await getAppEvent(appEventId)
@@ -320,6 +326,9 @@ export default function InAppEventPage() {
       const response = await drawAppEventWinners(event.id, parsedWinnerCount)
       if (response.isSuccess) {
         setWinnerDrawResult(response.result)
+        if (event.eventType === 'ATTENDANCE') {
+          await loadAttendanceWinners(event.id, false)
+        }
         alert(
           response.result.alreadyFinalized
             ? '이미 확정된 당첨자 결과를 불러왔습니다.'
@@ -331,6 +340,31 @@ export default function InAppEventPage() {
       alert(errorInfo.message || '당첨자 확정에 실패했습니다.')
     } finally {
       setDrawingWinners(false)
+    }
+  }
+
+  const loadAttendanceWinners = async (appEventId: number, showFailureAlert = true) => {
+    setLoadingAttendanceWinners(true)
+    try {
+      const response = await getAttendanceEventWinners(appEventId)
+      if (response.isSuccess) {
+        setAttendanceWinnerResult(response.result)
+      }
+    } catch (error) {
+      const errorInfo = getApiErrorInfo(error)
+      console.error('출석 이벤트 당첨자 조회 실패:', {
+        status: errorInfo.status,
+        code: errorInfo.code,
+        message: errorInfo.message,
+        data: errorInfo.data,
+        appEventId,
+        error,
+      })
+      if (showFailureAlert) {
+        alert(errorInfo.message || '출석 이벤트 당첨자 조회에 실패했습니다.')
+      }
+    } finally {
+      setLoadingAttendanceWinners(false)
     }
   }
 
@@ -558,17 +592,43 @@ export default function InAppEventPage() {
                                         placeholder="추첨 인원 (1~1000)"
                                         value={winnerCount}
                                         onChange={(event) => setWinnerCount(event.target.value)}
+                                        disabled={drawingWinners || loadingAttendanceWinners}
                                       />
                                       <button
                                         className="table-action-button"
-                                        disabled={drawingWinners}
+                                        disabled={drawingWinners || loadingAttendanceWinners}
                                         onClick={() => void handleDrawWinners(selectedEvent)}
                                         type="button"
                                       >
                                         {drawingWinners ? '확정 중...' : '당첨자 확정/결과 확인'}
                                       </button>
+                                      {selectedEvent.eventType === 'ATTENDANCE' ? (
+                                        <button
+                                          className="table-action-button"
+                                          disabled={drawingWinners || loadingAttendanceWinners}
+                                          onClick={() => void loadAttendanceWinners(selectedEvent.id)}
+                                          type="button"
+                                        >
+                                          {loadingAttendanceWinners ? '조회 중...' : '출석 통계 조회'}
+                                        </button>
+                                      ) : null}
                                     </div>
-                                    {winnerDrawResult ? (
+                                    {attendanceWinnerResult?.appEventId === selectedEvent.id ? (
+                                      <div className="reward-row-list">
+                                        <span>
+                                          후보자 {attendanceWinnerResult.candidateCount}명 · 총 응모권 {attendanceWinnerResult.totalTickets}장 · 확정 당첨자 {attendanceWinnerResult.winners.length}명
+                                        </span>
+                                        {attendanceWinnerResult.winners.length > 0 ? (
+                                          attendanceWinnerResult.winners.map((winner) => (
+                                            <span key={winner.userId}>
+                                              {winner.drawOrder}위 · {winner.nickName || '탈퇴 사용자'} (User ID: {winner.userId}) · 응모권 {winner.ticketCount}장 · 출석 {winner.totalAttendedDays}일
+                                            </span>
+                                          ))
+                                        ) : (
+                                          <span>아직 확정된 당첨자가 없습니다.</span>
+                                        )}
+                                      </div>
+                                    ) : winnerDrawResult ? (
                                       <div className="reward-row-list">
                                         <span>
                                           {winnerDrawResult.alreadyFinalized ? '기존 확정 결과' : '새 확정 결과'} · 총 {winnerDrawResult.winners.length}명

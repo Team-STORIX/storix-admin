@@ -43,6 +43,18 @@ export type AppEventWinnerDrawResult = {
   winners: AppEventDrawWinner[]
 }
 
+export type AttendanceEventWinner = AppEventDrawWinner & {
+  ticketCount: number
+  totalAttendedDays: number
+}
+
+export type AttendanceEventWinnerResult = {
+  appEventId: number
+  candidateCount: number
+  totalTickets: number
+  winners: AttendanceEventWinner[]
+}
+
 export type ApiEnvelope<T> = {
   isSuccess: boolean
   code: string
@@ -107,5 +119,14 @@ export const drawAppEventWinners = async (
   const response = await apiClient.post(`/api/v1/admin/app-events/${appEventId}/winners`, {
     winnerCount,
   })
+  return response.data
+}
+
+export const getAttendanceEventWinners = async (
+  appEventId: number,
+): Promise<ApiEnvelope<AttendanceEventWinnerResult>> => {
+  const response = await apiClient.get(
+    `/api/v1/admin/attendance-events/${appEventId}/winners`,
+  )
   return response.data
 }
