@@ -2,7 +2,7 @@ import { apiClient } from './axios-instance'
 
 export type PopupStatus = 'SCHEDULED' | 'ACTIVE' | 'ENDED' | 'CANCELED'
 export type PopupContentTargetType = 'APP_EVENT'
-export type PopupExposurePolicy = 'ALWAYS_DURING_PERIOD'
+export type PopupExposurePolicy = 'ALWAYS_DURING_PERIOD' | 'ONCE_PER_DAY'
 
 export type AdminPopup = {
   id: number
@@ -21,7 +21,7 @@ export type AdminPopup = {
 }
 
 export type AdminPopupPayload = {
-  targetId: number
+  appEventId: number
   contentTargetType: PopupContentTargetType
   exposurePolicy: PopupExposurePolicy
   popupTitle: string

@@ -58,6 +58,7 @@ const targetTypeLabels: Record<PopupContentTargetType, string> = {
 
 const exposurePolicyLabels: Record<PopupExposurePolicy, string> = {
   ALWAYS_DURING_PERIOD: '기간 내 항상 노출',
+  ONCE_PER_DAY: '하루 한 번 노출',
 }
 
 export default function PopupPage() {
@@ -163,6 +164,11 @@ export default function PopupPage() {
       return
     }
 
+    if (form.popupTitle.trim().length > 100 || form.content.trim().length > 500 || form.ctaText.trim().length > 40) {
+      alert('팝업 제목은 100자, 내용은 500자, CTA는 40자 이하로 입력해주세요.')
+      return
+    }
+
     const targetId = Number(form.targetId)
     if (!Number.isInteger(targetId) || targetId <= 0) {
       alert('연결 앱 이벤트 ID는 양의 정수로 입력해주세요.')
@@ -173,9 +179,13 @@ export default function PopupPage() {
       alert('팝업 이미지를 선택해주세요.')
       return
     }
+    if (form.displayStartAt >= form.displayEndAt) {
+      alert('노출 종료 일시는 시작 일시 이후여야 합니다.')
+      return
+    }
 
     const payload: AdminPopupPayload = {
-      targetId,
+      appEventId: targetId,
       contentTargetType: form.contentTargetType,
       exposurePolicy: form.exposurePolicy,
       popupTitle: form.popupTitle.trim(),
@@ -481,6 +491,7 @@ export default function PopupPage() {
                   }
                 >
                   <option value="ALWAYS_DURING_PERIOD">기간 내 항상 노출</option>
+                  <option value="ONCE_PER_DAY">하루 한 번 노출</option>
                 </select>
               </label>
               <label className="field">
@@ -570,9 +581,7 @@ function formatDateTime(value: string) {
 }
 
 function toDatetimeLocalValue(value: string) {
-  const date = new Date(value)
-  const offset = date.getTimezoneOffset() * 60_000
-  return new Date(date.getTime() - offset).toISOString().slice(0, 16)
+  return value.replace(' ', 'T').slice(0, 16)
 }
 
 function toLocalDateTimeString(value: string) {

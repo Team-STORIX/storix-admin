@@ -142,6 +142,11 @@ export default function BannerPage() {
       return
     }
 
+    if (form.bannerTitle.trim().length > 100) {
+      alert('배너명은 100자 이하로 입력해주세요.')
+      return
+    }
+
     const targetId = Number(form.targetId)
     if (!Number.isInteger(targetId) || targetId <= 0) {
       alert('연결 앱 이벤트 ID는 양의 정수로 입력해주세요.')
@@ -152,13 +157,17 @@ export default function BannerPage() {
       alert('배너 이미지를 선택해주세요.')
       return
     }
+    if (form.displayStartAt >= form.displayEndAt) {
+      alert('노출 종료 일시는 시작 일시 이후여야 합니다.')
+      return
+    }
 
     const payload: AdminBannerPayload = {
-      targetId,
+      appEventId: targetId,
       contentTargetType: form.contentTargetType,
       bannerTitle: form.bannerTitle.trim(),
-      displayStartAt: toIsoString(form.displayStartAt),
-      displayEndAt: toIsoString(form.displayEndAt),
+      displayStartAt: toLocalDateTimeString(form.displayStartAt),
+      displayEndAt: toLocalDateTimeString(form.displayEndAt),
     }
 
     setSaving(true)
@@ -458,14 +467,12 @@ export default function BannerPage() {
   )
 }
 
-function toIsoString(value: string) {
-  return new Date(value).toISOString()
+function toLocalDateTimeString(value: string) {
+  return value.replace('T', ' ').slice(0, 16)
 }
 
 function toDatetimeLocalValue(value: string) {
-  const date = new Date(value)
-  const offset = date.getTimezoneOffset() * 60_000
-  return new Date(date.getTime() - offset).toISOString().slice(0, 16)
+  return value.replace(' ', 'T').slice(0, 16)
 }
 
 function bannerStatusClass(status: BannerStatus) {

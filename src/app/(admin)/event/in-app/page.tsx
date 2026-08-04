@@ -5,12 +5,15 @@ import { AxiosError } from 'axios'
 import {
   cancelAppEvent,
   createAppEvent,
+  drawAppEventWinners,
   getAppEvent,
   getAppEvents,
   updateAppEvent,
   type AppEvent,
   type AppEventPayload,
   type AppEventStatus,
+  type AppEventType,
+  type AppEventWinnerDrawResult,
   type AttendanceRewards,
   type PromotionType,
 } from '@/lib/api/app-event.api'
@@ -18,6 +21,7 @@ import {
 type FormState = {
   name: string
   description: string
+  eventType: AppEventType
   startAt: string
   endAt: string
   hasWinner: boolean
@@ -33,6 +37,7 @@ type RewardRow = {
 const emptyForm: FormState = {
   name: '',
   description: '',
+  eventType: 'ATTENDANCE',
   startAt: '',
   endAt: '',
   hasWinner: false,
@@ -50,6 +55,14 @@ const promotionLabels: Record<PromotionType, string> = {
   POPUP: '팝업',
   BANNER: '배너',
 }
+
+const eventTypeLabels: Record<AppEventType, string> = {
+  GENERAL: '일반',
+  ATTENDANCE: '출석 체크',
+  STORY_CARD: '오늘의 스토리 카드',
+}
+
+const eventTypes: AppEventType[] = ['ATTENDANCE', 'STORY_CARD', 'GENERAL']
 
 const eventColumns = [
   { key: 'id', label: 'appEventID' },
@@ -87,6 +100,9 @@ export default function InAppEventPage() {
   const [loading, setLoading] = useState(false)
   const [detailLoading, setDetailLoading] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [drawingWinners, setDrawingWinners] = useState(false)
+  const [winnerCount, setWinnerCount] = useState('')
+  const [winnerDrawResult, setWinnerDrawResult] = useState<AppEventWinnerDrawResult | null>(null)
   const [errorMessage, setErrorMessage] = useState('')
   const [modalMode, setModalMode] = useState<'create' | 'edit' | null>(null)
   const [form, setForm] = useState<FormState>(emptyForm)
@@ -128,10 +144,14 @@ export default function InAppEventPage() {
   const handleSelectEvent = async (appEventId: number) => {
     if (selectedEvent?.id === appEventId) {
       setSelectedEvent(null)
+      setWinnerCount('')
+      setWinnerDrawResult(null)
       return
     }
 
     setDetailLoading(true)
+    setWinnerCount('')
+    setWinnerDrawResult(null)
     setErrorMessage('')
     try {
       const response = await getAppEvent(appEventId)
@@ -163,6 +183,7 @@ export default function InAppEventPage() {
     setForm({
       name: event.name,
       description: event.description,
+      eventType: event.eventType,
       startAt: toDatetimeLocalValue(event.startAt),
       endAt: toDatetimeLocalValue(event.endAt),
       hasWinner: event.hasWinner,
@@ -181,8 +202,24 @@ export default function InAppEventPage() {
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
 
-    if (!form.name.trim() || !form.description.trim() || !form.startAt || !form.endAt) {
-      alert('이벤트명, 설명, 시작일시, 종료일시를 모두 입력해주세요.')
+    if (!form.name.trim() || !form.description.trim() || !form.eventType || !form.startAt || !form.endAt) {
+      alert('이벤트명, 설명, 이벤트 유형, 시작일시, 종료일시를 모두 입력해주세요.')
+      return
+    }
+
+    if (form.name.trim().length > 100 || form.description.trim().length > 500) {
+      alert('이벤트명은 100자, 설명은 500자 이하로 입력해주세요.')
+      return
+    }
+
+    if (form.startAt >= form.endAt) {
+      alert('종료 일시는 시작 일시 이후여야 합니다.')
+      return
+    }
+
+    const boundaryHour = getEventBoundaryHour(form.eventType)
+    if (boundaryHour !== null && (!hasBoundaryHour(form.startAt, boundaryHour) || !hasBoundaryHour(form.endAt, boundaryHour))) {
+      alert(`${eventTypeLabels[form.eventType]} 이벤트의 시작·종료 시각은 ${String(boundaryHour).padStart(2, '0')}:00이어야 합니다.`)
       return
     }
 
@@ -200,6 +237,7 @@ export default function InAppEventPage() {
     const payload: AppEventPayload = {
       name: form.name.trim(),
       description: form.description.trim(),
+      eventType: form.eventType,
       startAt: toLocalDateTimeString(form.startAt),
       endAt: toLocalDateTimeString(form.endAt),
       hasWinner: form.hasWinner,
@@ -262,6 +300,37 @@ export default function InAppEventPage() {
         error,
       })
       alert(errorInfo.message || '앱 이벤트 강제 종료에 실패했습니다.')
+    }
+  }
+
+  const handleDrawWinners = async (event: AppEvent) => {
+    const parsedWinnerCount = Number(winnerCount)
+    if (!Number.isInteger(parsedWinnerCount) || parsedWinnerCount < 1 || parsedWinnerCount > 1000) {
+      alert('추첨 인원은 1명 이상 1,000명 이하의 정수로 입력해주세요.')
+      return
+    }
+
+    const confirmed = window.confirm(
+      `'${event.name}' 이벤트의 당첨자 ${parsedWinnerCount}명을 확정할까요?\n확정 후에는 이후 참여자가 반영되지 않으며 재추첨할 수 없습니다.`,
+    )
+    if (!confirmed) return
+
+    setDrawingWinners(true)
+    try {
+      const response = await drawAppEventWinners(event.id, parsedWinnerCount)
+      if (response.isSuccess) {
+        setWinnerDrawResult(response.result)
+        alert(
+          response.result.alreadyFinalized
+            ? '이미 확정된 당첨자 결과를 불러왔습니다.'
+            : `${response.result.winners.length}명의 당첨자를 확정했습니다.`,
+        )
+      }
+    } catch (error) {
+      const errorInfo = getApiErrorInfo(error)
+      alert(errorInfo.message || '당첨자 확정에 실패했습니다.')
+    } finally {
+      setDrawingWinners(false)
     }
   }
 
@@ -415,6 +484,9 @@ export default function InAppEventPage() {
                       <td>
                         <div className="event-name-cell">
                           <span className="ev-name">{event.name}</span>
+                          <span className="event-type-chip event-type-empty">
+                            {formatEventType(event.eventType)}
+                          </span>
                           <span className={`event-state-chip ${statusDesigns[event.status].className}`}>
                             {statusDesigns[event.status].label}
                           </span>
@@ -465,11 +537,51 @@ export default function InAppEventPage() {
                               <>
                                 <DetailRow label="이벤트명" value={selectedEvent.name} />
                                 <DetailRow label="설명" value={selectedEvent.description} />
+                                <DetailRow label="이벤트 유형" value={formatEventType(selectedEvent.eventType)} />
                                 <DetailRow label="시작일시" value={formatDateTime(selectedEvent.startAt)} />
                                 <DetailRow label="종료일시" value={formatDateTime(selectedEvent.endAt)} />
-                                <DetailRow label="보상 설정" value={formatAttendanceRewards(selectedEvent.attendanceRewards)} />
+                                <DetailRow
+                                  label="보상 설정"
+                                  value={formatAttendanceRewards(selectedEvent.attendanceRewards, selectedEvent.eventType)}
+                                />
                                 <DetailRow label="생성일시" value={formatDateTime(selectedEvent.createdAt)} />
                                 <DetailRow label="수정일시" value={formatDateTime(selectedEvent.updatedAt)} />
+                                {selectedEvent.hasWinner ? (
+                                  <div className="field wide">
+                                    <span>당첨자 확정</span>
+                                    <div className="reward-row">
+                                      <input
+                                        type="number"
+                                        inputMode="numeric"
+                                        min="1"
+                                        max="1000"
+                                        placeholder="추첨 인원 (1~1000)"
+                                        value={winnerCount}
+                                        onChange={(event) => setWinnerCount(event.target.value)}
+                                      />
+                                      <button
+                                        className="table-action-button"
+                                        disabled={drawingWinners}
+                                        onClick={() => void handleDrawWinners(selectedEvent)}
+                                        type="button"
+                                      >
+                                        {drawingWinners ? '확정 중...' : '당첨자 확정/결과 확인'}
+                                      </button>
+                                    </div>
+                                    {winnerDrawResult ? (
+                                      <div className="reward-row-list">
+                                        <span>
+                                          {winnerDrawResult.alreadyFinalized ? '기존 확정 결과' : '새 확정 결과'} · 총 {winnerDrawResult.winners.length}명
+                                        </span>
+                                        {winnerDrawResult.winners.map((winner) => (
+                                          <span key={winner.userId}>
+                                            {winner.drawOrder}위 · {winner.nickName || '탈퇴 사용자'} (User ID: {winner.userId})
+                                          </span>
+                                        ))}
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                ) : null}
                               </>
                             )}
                           </div>
@@ -510,6 +622,20 @@ export default function InAppEventPage() {
                 />
               </label>
               <label className="field">
+                <span>이벤트 유형</span>
+                <select
+                  value={form.eventType}
+                  onChange={(event) => setForm((current) => ({
+                    ...current,
+                    eventType: event.target.value as AppEventType,
+                  }))}
+                >
+                  {eventTypes.map((eventType) => (
+                    <option key={eventType} value={eventType}>{eventTypeLabels[eventType]}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="field">
                 <span>시작 일시</span>
                 <input
                   type="datetime-local"
@@ -525,6 +651,11 @@ export default function InAppEventPage() {
                   onChange={(event) => setForm((current) => ({ ...current, endAt: event.target.value }))}
                 />
               </label>
+              {getEventBoundaryHour(form.eventType) !== null ? (
+                <p className="filter-note">
+                  {eventTypeLabels[form.eventType]} 이벤트는 시작·종료 시각을 {String(getEventBoundaryHour(form.eventType)).padStart(2, '0')}:00으로 입력해야 합니다. 종료 시각은 마지막 참여일 다음 경계입니다.
+                </p>
+              ) : null}
 
               <div className="promotion-selector" aria-label="홍보 수단 선택">
                 <span>홍보 수단</span>
@@ -592,6 +723,9 @@ export default function InAppEventPage() {
                   <button className="table-action-button" onClick={addRewardRow} type="button">
                     보상 추가
                   </button>
+                  {form.eventType === 'ATTENDANCE' ? (
+                    <p className="filter-note">비워두면 기본 지급표(3일 1개, 7일 2개, 12일 5개)가 적용됩니다.</p>
+                  ) : null}
                 </div>
               ) : null}
             </div>
@@ -629,22 +763,37 @@ function formatCompactDateTime(value: string) {
 }
 
 function toDatetimeLocalValue(value: string) {
-  const date = new Date(value)
-  const offset = date.getTimezoneOffset() * 60_000
-  return new Date(date.getTime() - offset).toISOString().slice(0, 16)
+  return value.replace(' ', 'T').slice(0, 16)
 }
 
 function toLocalDateTimeString(value: string) {
   return value.replace('T', ' ')
 }
 
-function formatAttendanceRewards(rewards?: AttendanceRewards | null) {
+function formatAttendanceRewards(rewards: AttendanceRewards | null | undefined, eventType: AppEventType) {
   const entries = Object.entries(rewards ?? {})
-  if (entries.length === 0) return '-'
+  if (entries.length === 0) {
+    return eventType === 'ATTENDANCE' ? '기본 지급표 (3일 1개, 7일 2개, 12일 5개)' : '-'
+  }
 
   return entries
     .map(([condition, value]) => `조건 ${condition}: 보상 ${value}`)
     .join(', ')
+}
+
+function formatEventType(eventType: AppEventType) {
+  return eventTypeLabels[eventType]
+}
+
+function getEventBoundaryHour(eventType: AppEventType) {
+  if (eventType === 'ATTENDANCE') return 0
+  if (eventType === 'STORY_CARD') return 6
+  return null
+}
+
+function hasBoundaryHour(dateTimeLocal: string, boundaryHour: number) {
+  const time = dateTimeLocal.split('T')[1]
+  return time === `${String(boundaryHour).padStart(2, '0')}:00`
 }
 
 function rewardsToRows(rewards?: AttendanceRewards | null): RewardRow[] {
@@ -671,30 +820,35 @@ function parseRewardRows(rows: RewardRow[]):
       return { ok: false, message: '보상 조건과 보상값을 모두 입력해주세요.' }
     }
 
-    if (!/^\d+$/.test(condition)) {
-      return { ok: false, message: '보상 조건은 숫자로 입력해주세요.' }
+    if (!/^\d+$/.test(condition) || Number(condition) < 1) {
+      return { ok: false, message: '보상 조건은 1 이상의 출석일로 입력해주세요.' }
+    }
+
+    if (!/^\d+$/.test(valueText)) {
+      return { ok: false, message: '보상값은 0 이상의 정수로 입력해주세요.' }
+    }
+
+    if (Object.hasOwn(rewards, condition)) {
+      return { ok: false, message: '동일한 출석일 보상 조건을 중복해서 입력할 수 없습니다.' }
     }
 
     const value = Number(valueText)
-    if (!Number.isFinite(value)) {
-      return { ok: false, message: '보상값은 숫자로 입력해주세요.' }
-    }
 
     rewards[condition] = value
+  }
+
+  const sortedEntries = Object.entries(rewards).sort(([left], [right]) => Number(left) - Number(right))
+  for (let index = 1; index < sortedEntries.length; index += 1) {
+    if (sortedEntries[index][1] < sortedEntries[index - 1][1]) {
+      return { ok: false, message: '출석일이 늘어날수록 누적 응모권 수가 줄어들 수 없습니다.' }
+    }
   }
 
   return { ok: true, value: rewards }
 }
 
 function formatDateMinute(value: string) {
-  const date = new Date(value)
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  const hour = String(date.getHours()).padStart(2, '0')
-  const minute = String(date.getMinutes()).padStart(2, '0')
-
-  return `${year}-${month}-${day} ${hour}:${minute}`
+  return value.replace('T', ' ').slice(0, 16)
 }
 
 function getApiErrorInfo(error: unknown) {

@@ -1,6 +1,7 @@
 import { apiClient } from './axios-instance'
 
 export type AppEventStatus = 'SCHEDULED' | 'ACTIVE' | 'ENDED' | 'CANCELED'
+export type AppEventType = 'GENERAL' | 'ATTENDANCE' | 'STORY_CARD'
 export type PromotionType = 'PUSH' | 'POPUP' | 'BANNER'
 export type AttendanceRewards = Record<string, number>
 
@@ -8,6 +9,7 @@ export type AppEvent = {
   id: number
   name: string
   description: string
+  eventType: AppEventType
   startAt: string
   endAt: string
   status: AppEventStatus
@@ -21,11 +23,24 @@ export type AppEvent = {
 export type AppEventPayload = {
   name: string
   description: string
+  eventType: AppEventType
   startAt: string
   endAt: string
   hasWinner: boolean
   promotionTypes: PromotionType[]
   attendanceRewards: AttendanceRewards
+}
+
+export type AppEventDrawWinner = {
+  drawOrder: number
+  userId: number
+  nickName: string | null
+}
+
+export type AppEventWinnerDrawResult = {
+  appEventId: number
+  alreadyFinalized: boolean
+  winners: AppEventDrawWinner[]
 }
 
 export type ApiEnvelope<T> = {
@@ -82,5 +97,15 @@ export const cancelAppEvent = async (
   appEventId: number,
 ): Promise<ApiEnvelope<AppEvent>> => {
   const response = await apiClient.patch(`/api/v1/admin/app-events/${appEventId}/cancel`)
+  return response.data
+}
+
+export const drawAppEventWinners = async (
+  appEventId: number,
+  winnerCount: number,
+): Promise<ApiEnvelope<AppEventWinnerDrawResult>> => {
+  const response = await apiClient.post(`/api/v1/admin/app-events/${appEventId}/winners`, {
+    winnerCount,
+  })
   return response.data
 }

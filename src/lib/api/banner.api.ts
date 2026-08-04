@@ -17,7 +17,7 @@ export type AdminBanner = {
 }
 
 export type AdminBannerPayload = {
-  targetId: number
+  appEventId: number
   contentTargetType: BannerContentTargetType
   bannerTitle: string
   displayStartAt: string

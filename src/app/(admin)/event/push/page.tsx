@@ -27,6 +27,7 @@ type FormState = {
   scheduledAt: string
   targetType: NotificationTargetType
   eventTargetId: string
+  targetLink: string
 }
 
 const emptyForm: FormState = {
@@ -38,16 +39,20 @@ const emptyForm: FormState = {
   scheduledAt: '',
   targetType: 'APP_EVENT',
   eventTargetId: '',
+  targetLink: '',
 }
 
 const notificationTypeLabels: Record<NotificationType, string> = {
   MARKETING: '마케팅',
-  NOTICE: '공지',
+  FEATURE_UPDATE: '신기능',
+  TOS_UPDATE: '약관 변경',
+  PRIVACY_UPDATE: '개인정보 처리방침',
 }
 
 const targetAudienceLabels: Record<TargetAudience, string> = {
   ALL: '전체 유저',
-  NEW_USER: '신규 유저',
+  NEW_USERS: '신규 유저',
+  EVENT_WINNERS: '이벤트 당첨자',
 }
 
 const sendTypeLabels: Record<SendType, string> = {
@@ -58,10 +63,12 @@ const sendTypeLabels: Record<SendType, string> = {
 const targetTypeLabels: Record<NotificationTargetType, string> = {
   NONE: '없음',
   APP_EVENT: '앱 이벤트',
+  EXTERNAL: '외부 URL',
 }
 
 const statusLabels: Record<NotificationStatus, string> = {
   SCHEDULED: '예약',
+  SENDING: '발송 중',
   SENT: '발송완료',
   FAILED: '실패',
   CANCELED: '예약취소',
@@ -153,19 +160,39 @@ export default function PushNotificationPage() {
       return
     }
 
+    if (form.title.trim().length > 100 || form.content.trim().length > 500) {
+      alert('제목은 100자, 내용은 500자 이하로 입력해주세요.')
+      return
+    }
+
     if (form.sendType === 'SCHEDULED' && !form.scheduledAt) {
       alert('예약 발송 일시를 입력해주세요.')
       return
     }
 
+    if (form.sendType === 'SCHEDULED' && new Date(form.scheduledAt).getTime() <= Date.now()) {
+      alert('예약 발송 일시는 현재보다 미래여야 합니다.')
+      return
+    }
+
     let eventTargetId: number | null = null
-    if (form.targetType === 'APP_EVENT') {
+    if (form.targetType === 'APP_EVENT' || form.targetAudience === 'EVENT_WINNERS') {
       const parsedEventTargetId = Number(form.eventTargetId)
       if (!Number.isInteger(parsedEventTargetId) || parsedEventTargetId <= 0) {
         alert('연결 앱 이벤트 ID는 양의 정수로 입력해주세요.')
         return
       }
       eventTargetId = parsedEventTargetId
+    }
+
+    const targetLink = form.targetLink.trim()
+    if (targetLink.length > 1000) {
+      alert('외부 URL은 1,000자 이하로 입력해주세요.')
+      return
+    }
+    if (form.targetType === 'EXTERNAL' && !targetLink.toLowerCase().startsWith('https://')) {
+      alert('외부 URL은 https://로 시작해야 합니다.')
+      return
     }
 
     const payload: AdminNotificationPayload = {
@@ -177,7 +204,7 @@ export default function PushNotificationPage() {
       scheduledAt: form.sendType === 'SCHEDULED' ? formatScheduledAt(form.scheduledAt) : null,
       targetType: form.targetType,
       eventTargetId,
-      targetLink: null,
+      targetLink: form.targetType === 'EXTERNAL' ? targetLink : null,
     }
 
     setSaving(true)
@@ -406,6 +433,7 @@ export default function PushNotificationPage() {
                                 <DetailRow label="예약 일시" value={selectedNotification.scheduledAt ? formatDateTime(selectedNotification.scheduledAt) : '즉시'} />
                                 <DetailRow label="타겟 유형" value={targetTypeLabels[selectedNotification.targetType] ?? selectedNotification.targetType} />
                                 <DetailRow label="이벤트 타겟 ID" value={selectedNotification.eventTargetId ? String(selectedNotification.eventTargetId) : '-'} />
+                                <DetailRow label="외부 URL" value={selectedNotification.targetLink || '-'} />
                                 <DetailRow label="생성일시" value={formatDateTime(selectedNotification.createdAt)} />
                                 <DetailRow label="수정일시" value={formatDateTime(selectedNotification.updatedAt)} />
                               </>
@@ -449,6 +477,21 @@ export default function PushNotificationPage() {
                   onChange={(event) => setForm((current) => ({ ...current, content: event.target.value }))}
                 />
               </label>
+              <div className="field choice-field">
+                <span>알림 유형</span>
+                <div className="choice-group">
+                  {(Object.keys(notificationTypeLabels) as NotificationType[]).map((notificationType) => (
+                    <button
+                      key={notificationType}
+                      className={`choice-button ${form.notificationType === notificationType ? 'selected' : ''}`}
+                      onClick={() => setForm((current) => ({ ...current, notificationType }))}
+                      type="button"
+                    >
+                      {notificationTypeLabels[notificationType]}
+                    </button>
+                  ))}
+                </div>
+              </div>
               <label className="field">
                 <span>이동 대상</span>
                 <select
@@ -457,11 +500,16 @@ export default function PushNotificationPage() {
                     setForm((current) => ({
                       ...current,
                       targetType: event.target.value as NotificationTargetType,
-                      eventTargetId: event.target.value === 'APP_EVENT' ? current.eventTargetId : '',
+                      eventTargetId:
+                        event.target.value === 'APP_EVENT' || current.targetAudience === 'EVENT_WINNERS'
+                          ? current.eventTargetId
+                          : '',
+                      targetLink: event.target.value === 'EXTERNAL' ? current.targetLink : '',
                     }))
                   }
                 >
                   <option value="APP_EVENT">앱 이벤트</option>
+                  <option value="EXTERNAL">외부 URL</option>
                   <option value="NONE">없음</option>
                 </select>
               </label>
@@ -478,6 +526,17 @@ export default function PushNotificationPage() {
                   </label>
                 </>
               ) : null}
+              {form.targetType === 'EXTERNAL' ? (
+                <label className="field">
+                  <span>외부 URL</span>
+                  <input
+                    type="url"
+                    value={form.targetLink}
+                    onChange={(event) => setForm((current) => ({ ...current, targetLink: event.target.value }))}
+                    placeholder="https://..."
+                  />
+                </label>
+              ) : null}
               <div className="field choice-field">
                 <span>발송 대상</span>
                 <div className="choice-group">
@@ -493,6 +552,17 @@ export default function PushNotificationPage() {
                   ))}
                 </div>
               </div>
+              {form.targetAudience === 'EVENT_WINNERS' && form.targetType !== 'APP_EVENT' ? (
+                <label className="field">
+                  <span>당첨자 대상 이벤트 ID</span>
+                  <input
+                    inputMode="numeric"
+                    value={form.eventTargetId}
+                    onChange={(event) => setForm((current) => ({ ...current, eventTargetId: event.target.value }))}
+                    placeholder="appEventId 입력"
+                  />
+                </label>
+              ) : null}
               <div className="field choice-field">
                 <span>발송 방식</span>
                 <div className="choice-group">
