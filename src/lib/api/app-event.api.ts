@@ -10,6 +10,7 @@ export type AppEvent = {
   name: string
   description: string
   eventType: AppEventType
+  pageKey: string | null
   startAt: string
   endAt: string
   status: AppEventStatus
@@ -24,6 +25,7 @@ export type AppEventPayload = {
   name: string
   description: string
   eventType: AppEventType
+  pageKey?: string | null
   startAt: string
   endAt: string
   hasWinner: boolean

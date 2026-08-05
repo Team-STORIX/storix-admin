@@ -24,6 +24,7 @@ type FormState = {
   name: string
   description: string
   eventType: AppEventType
+  pageKey: string
   startAt: string
   endAt: string
   hasWinner: boolean
@@ -40,6 +41,7 @@ const emptyForm: FormState = {
   name: '',
   description: '',
   eventType: 'ATTENDANCE',
+  pageKey: '',
   startAt: '',
   endAt: '',
   hasWinner: false,
@@ -190,6 +192,7 @@ export default function InAppEventPage() {
       name: event.name,
       description: event.description,
       eventType: event.eventType,
+      pageKey: event.pageKey ?? '',
       startAt: toDatetimeLocalValue(event.startAt),
       endAt: toDatetimeLocalValue(event.endAt),
       hasWinner: event.hasWinner,
@@ -215,6 +218,12 @@ export default function InAppEventPage() {
 
     if (form.name.trim().length > 100 || form.description.trim().length > 500) {
       alert('이벤트명은 100자, 설명은 500자 이하로 입력해주세요.')
+      return
+    }
+
+    const pageKey = form.pageKey.trim()
+    if (pageKey && !/^[a-z0-9-]{1,50}$/.test(pageKey)) {
+      alert('페이지 키는 영소문자, 숫자, 하이픈만 사용해 50자 이하로 입력해주세요.')
       return
     }
 
@@ -244,6 +253,7 @@ export default function InAppEventPage() {
       name: form.name.trim(),
       description: form.description.trim(),
       eventType: form.eventType,
+      pageKey: pageKey || null,
       startAt: toLocalDateTimeString(form.startAt),
       endAt: toLocalDateTimeString(form.endAt),
       hasWinner: form.hasWinner,
@@ -572,6 +582,7 @@ export default function InAppEventPage() {
                                 <DetailRow label="이벤트명" value={selectedEvent.name} />
                                 <DetailRow label="설명" value={selectedEvent.description} />
                                 <DetailRow label="이벤트 유형" value={formatEventType(selectedEvent.eventType)} />
+                                <DetailRow label="페이지 키" value={selectedEvent.pageKey || '유형별 기본 화면'} />
                                 <DetailRow label="시작일시" value={formatDateTime(selectedEvent.startAt)} />
                                 <DetailRow label="종료일시" value={formatDateTime(selectedEvent.endAt)} />
                                 <DetailRow
@@ -695,6 +706,19 @@ export default function InAppEventPage() {
                   ))}
                 </select>
               </label>
+              <label className="field">
+                <span>페이지 키 (선택)</span>
+                <input
+                  value={form.pageKey}
+                  maxLength={50}
+                  pattern="[a-z0-9-]*"
+                  placeholder="예: attendance-2026-08-10"
+                  onChange={(event) => setForm((current) => ({ ...current, pageKey: event.target.value }))}
+                />
+              </label>
+              <p className="filter-note">
+                비워두면 이벤트 유형의 기본 화면을 사용합니다. 영소문자·숫자·하이픈만 입력할 수 있습니다.
+              </p>
               <label className="field">
                 <span>시작 일시</span>
                 <input
