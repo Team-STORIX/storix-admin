@@ -712,7 +712,7 @@ export default function InAppEventPage() {
                   value={form.pageKey}
                   maxLength={50}
                   pattern="[a-z0-9-]*"
-                  placeholder="예: attendance-2026-08-10"
+                  placeholder="예: attendance-2026-08-17"
                   onChange={(event) => setForm((current) => ({ ...current, pageKey: event.target.value }))}
                 />
               </label>
