@@ -19,6 +19,11 @@ import {
   type AttendanceRewards,
   type PromotionType,
 } from '@/lib/api/app-event.api'
+import {
+  formatDateTime,
+  toDatetimeLocalValue,
+  toLocalDateTimeString,
+} from '@/lib/utils/date-format'
 
 type FormState = {
   name: string
@@ -522,6 +527,7 @@ export default function InAppEventPage() {
                     >
                       <td>
                         <span className="id-chip">
+                          <span className="dot"></span>
                           {event.id}
                         </span>
                       </td>
@@ -537,31 +543,38 @@ export default function InAppEventPage() {
                         </div>
                       </td>
                       <td className="period">
-                        {formatCompactDateTime(event.startAt)}
-                        <span className="dash"> - </span>
-                        {formatCompactDateTime(event.endAt)}
+                        {formatDateTime(event.startAt)}
+                        <span className="dash"> ~ </span>
+                        {formatDateTime(event.endAt)}
                       </td>
                       <td>
                         <div className="event-type-tags">
-                          {event.promotionTypes.length > 0 ? (
-                            event.promotionTypes.map((type) => (
-                              <span key={type} className={`event-type-chip ${promotionDesigns[type].className}`}>
+                          {promotionTypes.map((type) => {
+                            const isConnected = event.promotionTypes.includes(type)
+
+                            return (
+                              <span
+                                key={type}
+                                className={`event-type-chip ${
+                                  isConnected ? promotionDesigns[type].className : 'event-type-empty event-type-disabled'
+                                }`}
+                              >
                                 {promotionDesigns[type].label}
                               </span>
-                            ))
-                          ) : (
-                            <span className="event-type-chip event-type-empty">미연결</span>
-                          )}
-                          {event.hasWinner ? <span className="event-type-chip event-type-winner">당첨자</span> : null}
+                            )
+                          })}
+                          <span className={`event-type-chip ${event.hasWinner ? 'event-type-winner' : 'event-type-empty event-type-disabled'}`}>
+                            당첨자
+                          </span>
                         </div>
                       </td>
                       <td>
                         <div className="in-app-row-actions" onClick={(clickEvent) => clickEvent.stopPropagation()}>
-                          <button className="table-action-button" onClick={() => openEditModal(event)} type="button">
+                          <button className="btn-edit" onClick={() => openEditModal(event)} type="button">
                             수정
                           </button>
                           <button
-                            className="table-action-button"
+                            className="btn-cancel"
                             onClick={() => void handleCancelEvent(event)}
                             disabled={event.status === 'ENDED' || event.status === 'CANCELED'}
                             type="button"
@@ -838,22 +851,6 @@ function DetailRow({ label, value }: { label: string; value: string }) {
   )
 }
 
-function formatDateTime(value: string) {
-  return formatDateMinute(value)
-}
-
-function formatCompactDateTime(value: string) {
-  return formatDateMinute(value)
-}
-
-function toDatetimeLocalValue(value: string) {
-  return value.replace(' ', 'T').slice(0, 16)
-}
-
-function toLocalDateTimeString(value: string) {
-  return value.replace('T', ' ')
-}
-
 function formatAttendanceRewards(rewards: AttendanceRewards | null | undefined, eventType: AppEventType) {
   const entries = Object.entries(rewards ?? {})
   if (entries.length === 0) {
@@ -929,10 +926,6 @@ function parseRewardRows(rows: RewardRow[]):
   }
 
   return { ok: true, value: rewards }
-}
-
-function formatDateMinute(value: string) {
-  return value.replace('T', ' ').slice(0, 16)
 }
 
 function getApiErrorInfo(error: unknown) {

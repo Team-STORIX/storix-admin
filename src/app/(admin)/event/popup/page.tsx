@@ -14,6 +14,11 @@ import {
   type PopupExposurePolicy,
   type PopupStatus,
 } from '@/lib/api/popup.api'
+import {
+  formatDateTime,
+  toDatetimeLocalValue,
+  toLocalDateTimeString,
+} from '@/lib/utils/date-format'
 
 type FormState = {
   targetId: string
@@ -46,10 +51,17 @@ type ApiErrorBody = {
 }
 
 const statusLabels: Record<PopupStatus, string> = {
-  SCHEDULED: '예약',
+  SCHEDULED: '예약됨',
   ACTIVE: '노출중',
-  ENDED: '종료',
+  ENDED: '종료됨',
   CANCELED: '강제 종료',
+}
+
+const statusClasses: Record<PopupStatus, string> = {
+  SCHEDULED: 'event-state-scheduled',
+  ACTIVE: 'event-state-active',
+  ENDED: 'event-state-ended',
+  CANCELED: 'event-state-canceled',
 }
 
 const targetTypeLabels: Record<PopupContentTargetType, string> = {
@@ -389,22 +401,21 @@ export default function PopupPage() {
                       <td>{exposurePolicyLabels[popup.exposurePolicy]}</td>
                       <td className="period">
                         {formatDateTime(popup.displayStartAt)}
-                        <span className="dash"> → </span>
-                        <br />
+                        <span className="dash"> ~ </span>
                         {formatDateTime(popup.displayEndAt)}
                       </td>
                       <td>
-                        <span className={`badge ${statusClass(popup.status)}`}>
+                        <span className={`event-state-chip ${statusClasses[popup.status]}`}>
                           {statusLabels[popup.status] ?? popup.status}
                         </span>
                       </td>
                       <td>
                         <div className="action-buttons" onClick={(clickEvent) => clickEvent.stopPropagation()}>
-                          <button className="btn-approve" onClick={() => void openEditModal(popup.id)} type="button">
+                          <button className="btn-edit" onClick={() => void openEditModal(popup.id)} type="button">
                             수정
                           </button>
                           <button
-                            className="btn-reject"
+                            className="btn-cancel"
                             onClick={() => void handleCancelPopup(popup)}
                             disabled={popup.status === 'ENDED' || popup.status === 'CANCELED'}
                             type="button"
@@ -574,31 +585,6 @@ function DetailRow({ label, value }: { label: string; value: string }) {
       <span className="detail-value">{value}</span>
     </div>
   )
-}
-
-function formatDateTime(value: string) {
-  return new Date(value).toLocaleString('ko-KR')
-}
-
-function toDatetimeLocalValue(value: string) {
-  return value.replace(' ', 'T').slice(0, 16)
-}
-
-function toLocalDateTimeString(value: string) {
-  return value.replace('T', ' ').slice(0, 16)
-}
-
-function statusClass(status: PopupStatus) {
-  switch (status) {
-    case 'ACTIVE':
-      return 'g'
-    case 'ENDED':
-    case 'CANCELED':
-      return 'a'
-    case 'SCHEDULED':
-    default:
-      return 'n'
-  }
 }
 
 function thumbColor(id: string) {

@@ -12,6 +12,12 @@ import {
   type BannerContentTargetType,
   type BannerStatus,
 } from '@/lib/api/banner.api'
+import {
+  formatDateTime,
+  formatDateRange,
+  toDatetimeLocalValue,
+  toLocalDateTimeString,
+} from '@/lib/utils/date-format'
 
 type FormState = {
   targetId: string
@@ -258,6 +264,27 @@ export default function BannerPage() {
           <h1>배너 관리</h1>
           <p className="page-sub">인앱 이벤트에 연결되는 배너를 생성하고 노출 기간과 이미지를 관리합니다.</p>
         </div>
+        <button className="btn-primary" onClick={openCreateModal} type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M5 12h14M12 5v14" />
+          </svg>
+          새 배너 만들기
+        </button>
+      </div>
+
+      <div className="toolbar">
+        <form className="search-box" onSubmit={handleSearchSubmit}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="11" cy="11" r="7" />
+            <path d="m21 21-4.3-4.3" />
+          </svg>
+          <input
+            type="text"
+            placeholder="배너명 검색"
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+          />
+        </form>
         <span className="filter-note">전체 {totalElements}건</span>
       </div>
 
@@ -291,13 +318,17 @@ export default function BannerPage() {
                 <span>노출 기간</span>
                 <strong>
                   {formatDateRange(selectedBanner.displayStartAt, selectedBanner.displayEndAt)}
+                </strong>
+
+                <span>배너 제어</span>
+                <strong>
                   <button
-                    className="banner-end-button"
+                    className="btn-cancel"
                     onClick={() => void handleCancelBanner(selectedBanner)}
                     disabled={selectedBanner.status === 'ENDED' || selectedBanner.status === 'CANCELED'}
                     type="button"
                   >
-                    노출 종료
+                    강제 종료
                   </button>
                 </strong>
 
@@ -307,61 +338,48 @@ export default function BannerPage() {
                 </strong>
               </div>
 
-              <div className="action-buttons">
-                <button className="btn-approve" onClick={() => void openEditModal(selectedBanner.id)} type="button">
-                  수정
-                </button>
-                <button className="dark-back-button" onClick={() => setSelectedBanner(null)} type="button">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+              <div className="banner-detail-actions">
+                <button className="btn-back" onClick={() => setSelectedBanner(null)} type="button">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <path d="m15 18-6-6 6-6" />
                   </svg>
                   목록으로
                 </button>
+                <div className="action-buttons">
+                  <button className="btn-edit" onClick={() => void openEditModal(selectedBanner.id)} type="button">
+                    수정
+                  </button>
+                </div>
               </div>
             </>
           )}
         </section>
       ) : (
         <>
-          <div className="event-table-panel banner-list-panel">
-            <div className="table-title-row banner-title-row">
+          <div className="event-table-panel">
+            <div className="table-title-row">
               <h2>배너 발송 목록</h2>
-              <button className="btn-primary compact" onClick={openCreateModal} type="button">
-                새 배너 만들기
-              </button>
-              <form className="banner-search-form" onSubmit={handleSearchSubmit}>
-                <input
-                  type="text"
-                  placeholder="검색"
-                  value={searchQuery}
-                  onChange={(event) => setSearchQuery(event.target.value)}
-                />
-                <button type="submit" aria-label="검색">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <circle cx="11" cy="11" r="7" />
-                    <path d="m21 21-4.3-4.3" />
-                  </svg>
-                </button>
-              </form>
             </div>
 
-            <table className="event-table banner-list-table">
+            <table className="event-table">
               <thead>
                 <tr>
+                  <th>Banner ID</th>
                   <th>제목</th>
                   <th>발송 대상</th>
                   <th>노출 기간</th>
                   <th>상태</th>
+                  <th>작업</th>
                 </tr>
               </thead>
               <tbody>
                 {loading ? (
                   <tr>
-                    <td colSpan={4}>로딩 중...</td>
+                    <td colSpan={6}>로딩 중...</td>
                   </tr>
                 ) : banners.length === 0 ? (
                   <tr>
-                    <td colSpan={4}>등록된 배너가 없습니다.</td>
+                    <td colSpan={6}>등록된 배너가 없습니다.</td>
                   </tr>
                 ) : (
                   banners.map((banner) => (
@@ -370,13 +388,36 @@ export default function BannerPage() {
                       key={banner.id}
                       onClick={() => void handleSelectBanner(banner.id)}
                     >
-                      <td>{banner.bannerTitle}</td>
+                      <td>
+                        <span className="id-chip">
+                          <span className="dot"></span>
+                          {banner.id}
+                        </span>
+                      </td>
+                      <td>
+                        <div className="ev-name">{banner.bannerTitle}</div>
+                      </td>
                       <td>{targetTypeLabels[banner.contentTargetType]}</td>
-                      <td>{formatDateRange(banner.displayStartAt, banner.displayEndAt)}</td>
+                      <td className="period">{formatDateRange(banner.displayStartAt, banner.displayEndAt)}</td>
                       <td>
                         <span className={`event-state-chip ${bannerStatusClass(banner.status)}`}>
                           {statusLabels[banner.status] ?? banner.status}
                         </span>
+                      </td>
+                      <td>
+                        <div className="action-buttons" onClick={(clickEvent) => clickEvent.stopPropagation()}>
+                          <button className="btn-edit" onClick={() => void openEditModal(banner.id)} type="button">
+                            수정
+                          </button>
+                          <button
+                            className="btn-cancel"
+                            onClick={() => void handleCancelBanner(banner)}
+                            disabled={banner.status === 'ENDED' || banner.status === 'CANCELED'}
+                            type="button"
+                          >
+                            종료
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))
@@ -467,14 +508,6 @@ export default function BannerPage() {
   )
 }
 
-function toLocalDateTimeString(value: string) {
-  return value.replace('T', ' ').slice(0, 16)
-}
-
-function toDatetimeLocalValue(value: string) {
-  return value.replace(' ', 'T').slice(0, 16)
-}
-
 function bannerStatusClass(status: BannerStatus) {
   switch (status) {
     case 'ACTIVE':
@@ -486,17 +519,4 @@ function bannerStatusClass(status: BannerStatus) {
     default:
       return 'event-state-scheduled'
   }
-}
-
-function formatDateRange(start: string, end: string) {
-  return `${formatDateDot(start)} ~ ${formatDateDot(end)}`
-}
-
-function formatDateDot(value: string) {
-  const date = new Date(value)
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-
-  return `${year}.${month}.${day}`
 }

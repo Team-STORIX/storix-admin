@@ -17,6 +17,7 @@ import {
   type SendType,
   type TargetAudience,
 } from '@/lib/api/notification.api'
+import { formatDateTime } from '@/lib/utils/date-format'
 
 type FormState = {
   title: string
@@ -67,11 +68,19 @@ const targetTypeLabels: Record<NotificationTargetType, string> = {
 }
 
 const statusLabels: Record<NotificationStatus, string> = {
-  SCHEDULED: '예약',
+  SCHEDULED: '예약됨',
   SENDING: '발송 중',
   SENT: '발송완료',
   FAILED: '실패',
-  CANCELED: '예약취소',
+  CANCELED: '취소됨',
+}
+
+const statusClasses: Record<NotificationStatus, string> = {
+  SCHEDULED: 'event-state-scheduled',
+  SENDING: 'event-state-active',
+  SENT: 'event-state-active',
+  FAILED: 'event-state-canceled',
+  CANCELED: 'event-state-ended',
 }
 
 export default function PushNotificationPage() {
@@ -390,7 +399,7 @@ export default function PushNotificationPage() {
                         {notification.scheduledAt ? formatDateTime(notification.scheduledAt) : '즉시'}
                       </td>
                       <td>
-                        <span className={`badge ${statusClass(notification.status)}`}>
+                        <span className={`event-state-chip ${statusClasses[notification.status]}`}>
                           {statusLabels[notification.status] ?? notification.status}
                         </span>
                       </td>
@@ -398,7 +407,7 @@ export default function PushNotificationPage() {
                         <div className="action-buttons" onClick={(clickEvent) => clickEvent.stopPropagation()}>
                           {notification.status === 'SCHEDULED' ? (
                             <button
-                              className="btn-reject"
+                              className="btn-cancel"
                               onClick={() => void handleCancel(notification)}
                               type="button"
                             >
@@ -407,7 +416,7 @@ export default function PushNotificationPage() {
                           ) : null}
                           {notification.status === 'FAILED' ? (
                             <button
-                              className="btn-approve"
+                              className="btn-edit"
                               onClick={() => void handleBroadcast(notification)}
                               type="button"
                             >
@@ -620,10 +629,6 @@ function DetailRow({ label, value }: { label: string; value: string }) {
   )
 }
 
-function formatDateTime(value: string) {
-  return new Date(value).toLocaleString('ko-KR')
-}
-
 function formatScheduledAt(value: string) {
   const date = new Date(value)
   const year = date.getFullYear()
@@ -632,17 +637,4 @@ function formatScheduledAt(value: string) {
   const hours = String(date.getHours()).padStart(2, '0')
   const minutes = String(date.getMinutes()).padStart(2, '0')
   return `${year}-${month}-${day} ${hours}:${minutes}`
-}
-
-function statusClass(status: NotificationStatus) {
-  switch (status) {
-    case 'SENT':
-      return 'g'
-    case 'FAILED':
-    case 'CANCELED':
-      return 'a'
-    case 'SCHEDULED':
-    default:
-      return 'n'
-  }
 }

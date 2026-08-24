@@ -1256,27 +1256,38 @@ select {
 
 .in-app-event-table th:nth-child(1),
 .in-app-event-table td:nth-child(1) {
-  width: 128px;
+  width: 90px;
 }
 
 .in-app-event-table th:nth-child(2),
 .in-app-event-table td:nth-child(2) {
-  width: 32%;
+  width: 35%;
 }
 
 .in-app-event-table th:nth-child(3),
 .in-app-event-table td:nth-child(3) {
-  width: 230px;
+  width: 240px;
 }
 
 .in-app-event-table th:nth-child(4),
 .in-app-event-table td:nth-child(4) {
-  width: 210px;
+  width: 260px;
 }
 
 .in-app-event-table th:nth-child(5),
 .in-app-event-table td:nth-child(5) {
-  width: 110px;
+  width: 120px;
+}
+
+/* Banner table columns */
+.event-table th:nth-child(1),
+.event-table td:nth-child(1) {
+  width: 90px;
+}
+
+/* Popup/Push table - ID column */
+.event-table tbody .id-chip {
+  min-width: 60px;
 }
 
 .in-app-event-table .event-row.open,
@@ -1310,7 +1321,8 @@ select {
 }
 
 .event-name-cell {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) 118px 76px;
   align-items: center;
   gap: 8px;
   min-width: 0;
@@ -1362,6 +1374,12 @@ select {
   white-space: nowrap;
 }
 
+.event-name-cell .event-state-chip,
+.event-name-cell .event-type-chip,
+.event-type-tags .event-type-chip {
+  width: 100%;
+}
+
 .event-state-scheduled {
   background: #e0f2fe;
   color: #0369a1;
@@ -1383,8 +1401,9 @@ select {
 }
 
 .event-type-tags {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(4, 56px);
+  align-items: center;
   gap: 6px;
 }
 
@@ -1413,36 +1432,64 @@ select {
   color: #64748b;
 }
 
+.event-type-disabled {
+  opacity: 0.36;
+}
+
 .in-app-row-actions {
   display: flex;
   align-items: center;
   gap: 6px;
 }
 
-.table-action-button {
+.table-action-button,
+.btn-edit,
+.btn-cancel {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   min-width: 44px;
   height: 28px;
   padding: 0 10px;
-  border: 1px solid #eee7eb;
   border-radius: 6px;
-  background: #fffafb;
-  color: #4f454b;
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
+  transition: all 0.15s ease;
+  border: none;
 }
 
-.table-action-button:hover:not(:disabled) {
-  border-color: #ec1e79;
-  color: #ec1e79;
+.table-action-button,
+.btn-edit {
+  background: #ec1e79;
+  color: #ffffff;
+  box-shadow: 0 1px 2px rgba(236, 30, 121, 0.2);
 }
 
-.table-action-button:disabled {
-  opacity: 0.42;
+.table-action-button:hover:not(:disabled),
+.btn-edit:hover:not(:disabled) {
+  background: #c40e62;
+}
+
+.btn-cancel {
+  background: #f0f0f3;
+  color: #5e5e68;
+}
+
+.btn-cancel:hover:not(:disabled) {
+  background: #e0e0e6;
+}
+
+.table-action-button:disabled,
+.btn-edit:disabled,
+.btn-cancel:disabled {
+  opacity: 0.45;
   cursor: not-allowed;
+}
+
+.btn-edit:active,
+.btn-cancel:active {
+  transform: translateY(1px);
 }
 
 /* User Management */
@@ -1899,81 +1946,8 @@ select {
 }
 
 /* Banner Management */
-.banner-list-panel,
 .banner-detail-card {
   border-radius: 8px;
-}
-
-.banner-title-row {
-  display: grid;
-  grid-template-columns: auto auto 1fr;
-  align-items: center;
-  gap: 10px;
-}
-
-.btn-primary.compact {
-  height: 32px;
-  padding: 0 13px;
-  border-radius: 6px;
-  font-size: 12px;
-}
-
-.banner-search-form {
-  display: grid;
-  grid-template-columns: 1fr 32px;
-  justify-self: end;
-  width: 210px;
-  height: 30px;
-  overflow: hidden;
-  border: 1px solid #ddd6dc;
-  border-radius: 4px;
-  background: #ffffff;
-}
-
-.banner-search-form input {
-  min-width: 0;
-  border: none;
-  outline: none;
-  padding: 0 10px;
-  color: #141418;
-  font: inherit;
-  font-size: 12px;
-}
-
-.banner-search-form button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  border-left: 1px solid #ddd6dc;
-  background: #ffffff;
-  color: #141418;
-  cursor: pointer;
-}
-
-.banner-search-form svg {
-  width: 15px;
-  height: 15px;
-}
-
-.banner-list-table th:nth-child(1),
-.banner-list-table td:nth-child(1) {
-  width: 30%;
-}
-
-.banner-list-table th:nth-child(2),
-.banner-list-table td:nth-child(2) {
-  width: 22%;
-}
-
-.banner-list-table th:nth-child(3),
-.banner-list-table td:nth-child(3) {
-  width: 32%;
-}
-
-.banner-list-table th:nth-child(4),
-.banner-list-table td:nth-child(4) {
-  width: 110px;
 }
 
 .banner-detail-card {
@@ -2002,7 +1976,7 @@ select {
   grid-template-columns: 90px minmax(0, 1fr);
   align-items: start;
   gap: 26px 28px;
-  max-width: 620px;
+  max-width: 760px;
 }
 
 .banner-detail-info > span {
@@ -2022,8 +1996,9 @@ select {
 }
 
 .banner-detail-image {
-  width: 240px;
-  height: 96px;
+  width: min(100%, 345px);
+  aspect-ratio: 5 / 2;
+  height: auto;
   object-fit: cover;
   border-radius: 8px;
   border: 1px solid #ebebef;
@@ -2039,21 +2014,11 @@ select {
   font-weight: 900;
 }
 
-.banner-end-button {
-  height: 34px;
-  padding: 0 18px;
-  border: none;
-  border-radius: 999px;
-  background: #ec1e79;
-  color: #ffffff;
+.banner-detail-info .btn-cancel,
+.banner-detail-info .btn-edit {
+  height: 32px;
+  padding: 0 16px;
   font-size: 13px;
-  font-weight: 900;
-  cursor: pointer;
-}
-
-.banner-end-button:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
 }
 
 .dark-back-button {
@@ -2075,6 +2040,32 @@ select {
 .dark-back-button svg {
   width: 17px;
   height: 17px;
+}
+
+.banner-detail-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 32px;
+  padding-top: 24px;
+  border-top: 1px solid #ebebef;
+}
+
+.banner-detail-card .action-buttons {
+  gap: 8px;
+}
+
+.banner-detail-card .btn-approve,
+.banner-detail-card .btn-edit,
+.banner-detail-card .dark-back-button {
+  justify-content: center;
+  min-width: 104px;
+  height: 40px;
+  margin-top: 0;
+  padding: 0 18px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 900;
 }
 
 /* Badge - Status Chips */
