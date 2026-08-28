@@ -605,26 +605,36 @@ export default function InAppEventPage() {
                                 <DetailRow label="생성일시" value={formatDateTime(selectedEvent.createdAt)} />
                                 <DetailRow label="수정일시" value={formatDateTime(selectedEvent.updatedAt)} />
                                 {selectedEvent.hasWinner ? (
-                                  <div className="field wide">
-                                    <span>당첨자 확정</span>
-                                    <div className="reward-row">
+                                  <div className="winner-draw-card">
+                                    <div className="winner-draw-head">
+                                      <div>
+                                        <strong>당첨자 추첨</strong>
+                                        <p>
+                                          이벤트가 종료된 뒤 최초 1회만 확정됩니다. 이미 확정된 이벤트는 재추첨하지 않고 기존 당첨자를 불러옵니다.
+                                        </p>
+                                      </div>
+                                      <span className={`event-state-chip ${selectedEvent.status === 'ENDED' || selectedEvent.status === 'CANCELED' ? 'event-state-ended' : 'event-state-scheduled'}`}>
+                                        {selectedEvent.status === 'ENDED' || selectedEvent.status === 'CANCELED' ? '추첨 가능' : '종료 필요'}
+                                      </span>
+                                    </div>
+                                    <div className="winner-draw-actions">
                                       <input
                                         type="number"
                                         inputMode="numeric"
                                         min="1"
                                         max="1000"
-                                        placeholder="추첨 인원 (1~1000)"
+                                        placeholder="당첨자 수"
                                         value={winnerCount}
                                         onChange={(event) => setWinnerCount(event.target.value)}
                                         disabled={drawingWinners || loadingAttendanceWinners}
                                       />
                                       <button
-                                        className="table-action-button"
+                                        className="table-action-button winner-primary-button"
                                         disabled={drawingWinners || loadingAttendanceWinners}
                                         onClick={() => void handleDrawWinners(selectedEvent)}
                                         type="button"
                                       >
-                                        {drawingWinners ? '확정 중...' : '당첨자 확정/결과 확인'}
+                                        {drawingWinners ? '추첨 중...' : '당첨자 확정하기'}
                                       </button>
                                       {selectedEvent.eventType === 'ATTENDANCE' ? (
                                         <button
@@ -633,39 +643,61 @@ export default function InAppEventPage() {
                                           onClick={() => void loadAttendanceWinners(selectedEvent.id)}
                                           type="button"
                                         >
-                                          {loadingAttendanceWinners ? '조회 중...' : '출석 통계 조회'}
+                                          {loadingAttendanceWinners ? '조회 중...' : '출석 응모권/결과 조회'}
                                         </button>
                                       ) : null}
+                                      <a
+                                        className={`table-action-button winner-push-link ${winnerDrawResult || attendanceWinnerResult ? '' : 'disabled'}`}
+                                        href={`/event/push?targetAudience=EVENT_WINNERS&targetType=APP_EVENT&eventTargetId=${selectedEvent.id}`}
+                                        aria-disabled={!(winnerDrawResult || attendanceWinnerResult)}
+                                        onClick={(event) => {
+                                          if (!(winnerDrawResult || attendanceWinnerResult)) event.preventDefault()
+                                        }}
+                                      >
+                                        당첨자 푸시 만들기
+                                      </a>
                                     </div>
+                                    <p className="winner-draw-note">
+                                      확정된 당첨자는 푸시 알림 관리에서 발송 대상 “이벤트 당첨자”와 이 appEventID를 선택하면 해당 이벤트 당첨자에게만 발송됩니다.
+                                    </p>
                                     {attendanceWinnerResult?.appEventId === selectedEvent.id ? (
-                                      <div className="reward-row-list">
-                                        <span>
+                                      <div className="winner-result-list">
+                                        <div className="winner-result-summary">
                                           후보자 {attendanceWinnerResult.candidateCount}명 · 총 응모권 {attendanceWinnerResult.totalTickets}장 · 확정 당첨자 {attendanceWinnerResult.winners.length}명
-                                        </span>
+                                        </div>
                                         {attendanceWinnerResult.winners.length > 0 ? (
                                           attendanceWinnerResult.winners.map((winner) => (
-                                            <span key={winner.userId}>
-                                              {winner.drawOrder}위 · {winner.nickName || '탈퇴 사용자'} (User ID: {winner.userId}) · 응모권 {winner.ticketCount}장 · 출석 {winner.totalAttendedDays}일
-                                            </span>
+                                            <div className="winner-result-row" key={winner.userId}>
+                                              <span>{winner.drawOrder}위</span>
+                                              <strong>{winner.nickName || '탈퇴 사용자'}</strong>
+                                              <small>User ID {winner.userId} · 응모권 {winner.ticketCount}장 · 출석 {winner.totalAttendedDays}일</small>
+                                            </div>
                                           ))
                                         ) : (
-                                          <span>아직 확정된 당첨자가 없습니다.</span>
+                                          <div className="winner-empty">아직 확정된 당첨자가 없습니다.</div>
                                         )}
                                       </div>
                                     ) : winnerDrawResult ? (
-                                      <div className="reward-row-list">
-                                        <span>
+                                      <div className="winner-result-list">
+                                        <div className="winner-result-summary">
                                           {winnerDrawResult.alreadyFinalized ? '기존 확정 결과' : '새 확정 결과'} · 총 {winnerDrawResult.winners.length}명
-                                        </span>
+                                        </div>
                                         {winnerDrawResult.winners.map((winner) => (
-                                          <span key={winner.userId}>
-                                            {winner.drawOrder}위 · {winner.nickName || '탈퇴 사용자'} (User ID: {winner.userId})
-                                          </span>
+                                          <div className="winner-result-row" key={winner.userId}>
+                                            <span>{winner.drawOrder}위</span>
+                                            <strong>{winner.nickName || '탈퇴 사용자'}</strong>
+                                            <small>User ID {winner.userId}</small>
+                                          </div>
                                         ))}
                                       </div>
                                     ) : null}
                                   </div>
-                                ) : null}
+                                ) : (
+                                  <div className="winner-draw-card muted">
+                                    <strong>당첨자 추첨 없음</strong>
+                                    <p>이 이벤트는 hasWinner=false라 당첨자 확정 API를 호출하지 않습니다.</p>
+                                  </div>
+                                )}
                               </>
                             )}
                           </div>

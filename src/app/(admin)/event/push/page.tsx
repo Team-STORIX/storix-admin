@@ -130,6 +130,23 @@ export default function PushNotificationPage() {
     void fetchNotifications(currentPage)
   }, [currentPage])
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const eventTargetId = params.get('eventTargetId')
+    const targetAudience = params.get('targetAudience')
+    const targetType = params.get('targetType')
+
+    if (targetAudience !== 'EVENT_WINNERS' || !eventTargetId) return
+
+    setForm({
+      ...emptyForm,
+      targetAudience: 'EVENT_WINNERS',
+      targetType: targetType === 'NONE' || targetType === 'EXTERNAL' ? targetType : 'APP_EVENT',
+      eventTargetId,
+    })
+    setModalMode('create')
+  }, [])
+
   const handleSelectNotification = async (adminNotificationId: number) => {
     if (selectedNotification?.id === adminNotificationId) {
       setSelectedNotification(null)
