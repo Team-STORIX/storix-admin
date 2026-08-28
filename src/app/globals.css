@@ -1965,6 +1965,60 @@ select {
   pointer-events: none;
 }
 
+.winner-push-panel {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid #f9d4e4;
+  border-radius: 10px;
+  background: #ffffff;
+}
+
+.winner-push-panel label {
+  display: grid;
+  gap: 6px;
+}
+
+.winner-push-panel span {
+  font-size: 12px;
+  font-weight: 800;
+  color: #5e5e68;
+}
+
+.winner-push-panel input,
+.winner-push-panel textarea {
+  width: 100%;
+  border: 1px solid #e0e0e6;
+  border-radius: 8px;
+  padding: 10px 11px;
+  font-size: 13px;
+  color: #141418;
+  background: #ffffff;
+}
+
+.winner-push-panel textarea {
+  min-height: 76px;
+  resize: vertical;
+}
+
+.winner-push-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.winner-push-manage-link {
+  font-size: 12px;
+  font-weight: 800;
+  color: #c40e62;
+  text-decoration: none;
+}
+
+.winner-push-manage-link:hover {
+  text-decoration: underline;
+}
+
 .winner-draw-note {
   padding: 10px 12px;
   border-radius: 8px;

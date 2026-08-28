@@ -24,6 +24,7 @@ import {
   toDatetimeLocalValue,
   toLocalDateTimeString,
 } from '@/lib/utils/date-format'
+import { createAdminNotification } from '@/lib/api/notification.api'
 
 type FormState = {
   name: string
@@ -98,6 +99,12 @@ const promotionTypes: PromotionType[] = ['PUSH', 'POPUP', 'BANNER']
 
 const emptyRewardRow = (): RewardRow => ({ condition: '', value: '' })
 
+const getDefaultWinnerPushTitle = (event: AppEvent) =>
+  `[당첨 안내] ${event.name}`
+
+const getDefaultWinnerPushContent = (event: AppEvent) =>
+  `${event.name} 이벤트에 당첨되셨어요. 자세한 내용은 앱에서 확인해주세요.`
+
 export default function InAppEventPage() {
   const [events, setEvents] = useState<AppEvent[]>([])
   const [selectedEvent, setSelectedEvent] = useState<AppEvent | null>(null)
@@ -111,7 +118,10 @@ export default function InAppEventPage() {
   const [saving, setSaving] = useState(false)
   const [drawingWinners, setDrawingWinners] = useState(false)
   const [loadingAttendanceWinners, setLoadingAttendanceWinners] = useState(false)
+  const [sendingWinnerPush, setSendingWinnerPush] = useState(false)
   const [winnerCount, setWinnerCount] = useState('')
+  const [winnerPushTitle, setWinnerPushTitle] = useState('')
+  const [winnerPushContent, setWinnerPushContent] = useState('')
   const [winnerDrawResult, setWinnerDrawResult] = useState<AppEventWinnerDrawResult | null>(null)
   const [attendanceWinnerResult, setAttendanceWinnerResult] = useState<AttendanceEventWinnerResult | null>(null)
   const [errorMessage, setErrorMessage] = useState('')
@@ -156,6 +166,8 @@ export default function InAppEventPage() {
     if (selectedEvent?.id === appEventId) {
       setSelectedEvent(null)
       setWinnerCount('')
+      setWinnerPushTitle('')
+      setWinnerPushContent('')
       setWinnerDrawResult(null)
       setAttendanceWinnerResult(null)
       return
@@ -163,6 +175,8 @@ export default function InAppEventPage() {
 
     setDetailLoading(true)
     setWinnerCount('')
+    setWinnerPushTitle('')
+    setWinnerPushContent('')
     setWinnerDrawResult(null)
     setAttendanceWinnerResult(null)
     setErrorMessage('')
@@ -170,6 +184,11 @@ export default function InAppEventPage() {
       const response = await getAppEvent(appEventId)
       if (response.isSuccess) {
         setSelectedEvent(response.result)
+        setWinnerPushTitle(getDefaultWinnerPushTitle(response.result))
+        setWinnerPushContent(getDefaultWinnerPushContent(response.result))
+        if (response.result.hasWinner && response.result.eventType === 'ATTENDANCE') {
+          await loadAttendanceWinners(response.result.id, false)
+        }
       }
     } catch (error) {
       const errorInfo = getApiErrorInfo(error)
@@ -380,6 +399,49 @@ export default function InAppEventPage() {
       }
     } finally {
       setLoadingAttendanceWinners(false)
+    }
+  }
+
+  const handleSendWinnerPush = async (event: AppEvent) => {
+    if (!event.hasWinner) {
+      alert('당첨자를 뽑는 이벤트만 당첨자 푸시를 보낼 수 있습니다.')
+      return
+    }
+
+    const title = winnerPushTitle.trim()
+    const content = winnerPushContent.trim()
+    if (!title || !content) {
+      alert('푸시 제목과 내용을 입력해주세요.')
+      return
+    }
+
+    const confirmed = window.confirm(
+      `'${event.name}' 이벤트의 확정 당첨자에게 푸시를 즉시 발송할까요?\n푸시 관리 목록에도 기록됩니다.`,
+    )
+    if (!confirmed) return
+
+    setSendingWinnerPush(true)
+    try {
+      const response = await createAdminNotification({
+        title,
+        content,
+        notificationType: 'MARKETING',
+        targetAudience: 'EVENT_WINNERS',
+        sendType: 'IMMEDIATE',
+        scheduledAt: null,
+        targetType: 'APP_EVENT',
+        eventTargetId: event.id,
+        targetLink: null,
+      })
+
+      if (response.isSuccess) {
+        alert(`당첨자 대상 푸시가 생성되었습니다. 알림 ID: ${response.result}`)
+      }
+    } catch (error) {
+      const errorInfo = getApiErrorInfo(error)
+      alert(errorInfo.message || '당첨자 푸시 생성에 실패했습니다.')
+    } finally {
+      setSendingWinnerPush(false)
     }
   }
 
@@ -646,20 +708,46 @@ export default function InAppEventPage() {
                                           {loadingAttendanceWinners ? '조회 중...' : '출석 응모권/결과 조회'}
                                         </button>
                                       ) : null}
-                                      <a
-                                        className={`table-action-button winner-push-link ${winnerDrawResult || attendanceWinnerResult ? '' : 'disabled'}`}
-                                        href={`/event/push?targetAudience=EVENT_WINNERS&targetType=APP_EVENT&eventTargetId=${selectedEvent.id}`}
-                                        aria-disabled={!(winnerDrawResult || attendanceWinnerResult)}
-                                        onClick={(event) => {
-                                          if (!(winnerDrawResult || attendanceWinnerResult)) event.preventDefault()
-                                        }}
-                                      >
-                                        당첨자 푸시 만들기
-                                      </a>
                                     </div>
                                     <p className="winner-draw-note">
-                                      확정된 당첨자는 푸시 알림 관리에서 발송 대상 “이벤트 당첨자”와 이 appEventID를 선택하면 해당 이벤트 당첨자에게만 발송됩니다.
+                                      확정된 당첨자는 발송 대상 “이벤트 당첨자”와 이 appEventID로 연결됩니다. 아래에서 푸시를 만들면 푸시 알림 관리에도 기록됩니다.
                                     </p>
+                                    <div className="winner-push-panel">
+                                      <label>
+                                        <span>푸시 제목</span>
+                                        <input
+                                          value={winnerPushTitle}
+                                          onChange={(event) => setWinnerPushTitle(event.target.value)}
+                                          maxLength={100}
+                                          disabled={sendingWinnerPush}
+                                        />
+                                      </label>
+                                      <label>
+                                        <span>푸시 내용</span>
+                                        <textarea
+                                          value={winnerPushContent}
+                                          onChange={(event) => setWinnerPushContent(event.target.value)}
+                                          maxLength={500}
+                                          disabled={sendingWinnerPush}
+                                        />
+                                      </label>
+                                      <div className="winner-push-actions">
+                                        <button
+                                          className="table-action-button winner-push-link"
+                                          disabled={sendingWinnerPush || !(winnerDrawResult || attendanceWinnerResult)}
+                                          onClick={() => void handleSendWinnerPush(selectedEvent)}
+                                          type="button"
+                                        >
+                                          {sendingWinnerPush ? '푸시 생성 중...' : '당첨자에게 즉시 푸시 보내기'}
+                                        </button>
+                                        <a
+                                          className="winner-push-manage-link"
+                                          href={`/event/push?targetAudience=EVENT_WINNERS&targetType=APP_EVENT&eventTargetId=${selectedEvent.id}`}
+                                        >
+                                          푸시 관리에서 작성
+                                        </a>
+                                      </div>
+                                    </div>
                                     {attendanceWinnerResult?.appEventId === selectedEvent.id ? (
                                       <div className="winner-result-list">
                                         <div className="winner-result-summary">
