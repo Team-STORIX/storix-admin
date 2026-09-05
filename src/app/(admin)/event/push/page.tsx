@@ -1,6 +1,7 @@
 'use client'
 
 import { FormEvent, Fragment, useEffect, useMemo, useState } from 'react'
+import { AxiosError } from 'axios'
 import {
   broadcastAdminNotification,
   cancelAdminNotification,
@@ -18,6 +19,15 @@ import {
   type TargetAudience,
 } from '@/lib/api/notification.api'
 import { formatDateTime } from '@/lib/utils/date-format'
+import {
+  isCurrentMarketingPushTimeAllowed,
+  isMarketingPushDateTimeAllowed,
+  MARKETING_PUSH_TIME_LABEL,
+} from '@/lib/utils/notification-rules'
+
+type ApiErrorBody = {
+  message?: string
+}
 
 type FormState = {
   title: string
@@ -201,6 +211,24 @@ export default function PushNotificationPage() {
       return
     }
 
+    if (
+      form.notificationType === 'MARKETING' &&
+      form.sendType === 'SCHEDULED' &&
+      !isMarketingPushDateTimeAllowed(form.scheduledAt)
+    ) {
+      alert(`마케팅 푸시는 한국 시간 기준 ${MARKETING_PUSH_TIME_LABEL}에만 예약할 수 있습니다.`)
+      return
+    }
+
+    if (
+      form.notificationType === 'MARKETING' &&
+      form.sendType === 'IMMEDIATE' &&
+      !isCurrentMarketingPushTimeAllowed()
+    ) {
+      alert(`마케팅 푸시는 한국 시간 기준 ${MARKETING_PUSH_TIME_LABEL}에만 즉시 발송할 수 있습니다. 허용 시간으로 예약해주세요.`)
+      return
+    }
+
     let eventTargetId: number | null = null
     if (form.targetType === 'APP_EVENT' || form.targetAudience === 'EVENT_WINNERS') {
       const parsedEventTargetId = Number(form.eventTargetId)
@@ -254,8 +282,11 @@ export default function PushNotificationPage() {
       setModalMode(null)
       setForm(emptyForm)
       await fetchNotifications(modalMode === 'create' ? 0 : currentPage)
-    } catch {
-      alert(modalMode === 'edit' ? '푸시 알림 수정에 실패했습니다.' : '푸시 알림 생성에 실패했습니다.')
+    } catch (error) {
+      alert(getApiErrorMessage(
+        error,
+        modalMode === 'edit' ? '푸시 알림 수정에 실패했습니다.' : '푸시 알림 생성에 실패했습니다.',
+      ))
     } finally {
       setSaving(false)
     }
@@ -610,6 +641,11 @@ export default function PushNotificationPage() {
                   ))}
                 </div>
               </div>
+              {form.notificationType === 'MARKETING' ? (
+                <p className="marketing-push-notice">
+                  마케팅 푸시는 한국 시간 기준 {MARKETING_PUSH_TIME_LABEL}에만 발송할 수 있습니다. 즉시 발송도 같은 제한이 적용됩니다.
+                </p>
+              ) : null}
               {form.sendType === 'SCHEDULED' ? (
                 <label className="field">
                   <span>예약 발송 일시</span>
@@ -654,4 +690,9 @@ function formatScheduledAt(value: string) {
   const hours = String(date.getHours()).padStart(2, '0')
   const minutes = String(date.getMinutes()).padStart(2, '0')
   return `${year}-${month}-${day} ${hours}:${minutes}`
+}
+
+function getApiErrorMessage(error: unknown, fallback: string) {
+  const axiosError = error as AxiosError<ApiErrorBody>
+  return axiosError.response?.data?.message || (error instanceof Error ? error.message : fallback)
 }

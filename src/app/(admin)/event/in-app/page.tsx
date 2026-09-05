@@ -24,6 +24,10 @@ import {
   toDatetimeLocalValue,
   toLocalDateTimeString,
 } from '@/lib/utils/date-format'
+import {
+  isCurrentMarketingPushTimeAllowed,
+  MARKETING_PUSH_TIME_LABEL,
+} from '@/lib/utils/notification-rules'
 import { createAdminNotification } from '@/lib/api/notification.api'
 
 type FormState = {
@@ -240,6 +244,11 @@ export default function InAppEventPage() {
       return
     }
 
+    if (!isCompleteLocalDateTime(form.startAt) || !isCompleteLocalDateTime(form.endAt)) {
+      alert('시작일시와 종료일시의 날짜, 시, 분을 올바르게 입력해주세요.')
+      return
+    }
+
     if (form.name.trim().length > 100 || form.description.trim().length > 500) {
       alert('이벤트명은 100자, 설명은 500자 이하로 입력해주세요.')
       return
@@ -415,6 +424,11 @@ export default function InAppEventPage() {
       return
     }
 
+    if (!isCurrentMarketingPushTimeAllowed()) {
+      alert(`마케팅 푸시는 ${MARKETING_PUSH_TIME_LABEL}에만 즉시 발송할 수 있습니다. 푸시 관리에서 허용 시간으로 예약해주세요.`)
+      return
+    }
+
     const confirmed = window.confirm(
       `'${event.name}' 이벤트의 확정 당첨자에게 푸시를 즉시 발송할까요?\n푸시 관리 목록에도 기록됩니다.`,
     )
@@ -535,6 +549,15 @@ export default function InAppEventPage() {
           </svg>
           새 이벤트 만들기
         </button>
+      </div>
+
+      <div className="event-workflow-notice" role="note">
+        <span className="event-workflow-notice-icon" aria-hidden="true">i</span>
+        <div>
+          <strong>인앱 이벤트를 먼저 생성해주세요.</strong>
+          <p>이벤트 생성 후 푸시 알림, 팝업(모달), 배너 관리에서 해당 appEventID를 연결해 홍보 콘텐츠를 만들 수 있습니다.</p>
+          <p>마케팅 푸시는 한국 시간 기준 {MARKETING_PUSH_TIME_LABEL}에만 발송할 수 있습니다.</p>
+        </div>
       </div>
 
       <div className="toolbar">
@@ -731,6 +754,9 @@ export default function InAppEventPage() {
                                           disabled={sendingWinnerPush}
                                         />
                                       </label>
+                                      <p className="marketing-push-notice">
+                                        당첨자 푸시는 마케팅 알림으로 발송되며, 한국 시간 기준 {MARKETING_PUSH_TIME_LABEL}에만 즉시 발송할 수 있습니다.
+                                      </p>
                                       <div className="winner-push-actions">
                                         <button
                                           className="table-action-button winner-push-link"
@@ -852,22 +878,16 @@ export default function InAppEventPage() {
               <p className="filter-note">
                 비워두면 이벤트 유형의 기본 화면을 사용합니다. 영소문자·숫자·하이픈만 입력할 수 있습니다.
               </p>
-              <label className="field">
-                <span>시작 일시</span>
-                <input
-                  type="datetime-local"
-                  value={form.startAt}
-                  onChange={(event) => setForm((current) => ({ ...current, startAt: event.target.value }))}
-                />
-              </label>
-              <label className="field">
-                <span>종료 일시</span>
-                <input
-                  type="datetime-local"
-                  value={form.endAt}
-                  onChange={(event) => setForm((current) => ({ ...current, endAt: event.target.value }))}
-                />
-              </label>
+              <DateTimeField
+                label="시작 일시"
+                value={form.startAt}
+                onChange={(startAt) => setForm((current) => ({ ...current, startAt }))}
+              />
+              <DateTimeField
+                label="종료 일시"
+                value={form.endAt}
+                onChange={(endAt) => setForm((current) => ({ ...current, endAt }))}
+              />
               {getEventBoundaryHour(form.eventType) !== null ? (
                 <p className="filter-note">
                   {eventTypeLabels[form.eventType]} 이벤트는 시작·종료 시각을 {String(getEventBoundaryHour(form.eventType)).padStart(2, '0')}:00으로 입력해야 합니다. 종료 시각은 마지막 참여일 다음 경계입니다.
@@ -971,6 +991,60 @@ function DetailRow({ label, value }: { label: string; value: string }) {
   )
 }
 
+function DateTimeField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string
+  value: string
+  onChange: (value: string) => void
+}) {
+  const [date = '', time = ''] = value.split('T')
+  const [hour = '', minute = ''] = time.split(':')
+
+  return (
+    <div className="field date-time-field">
+      <span>{label}</span>
+      <div className="date-time-input-row">
+        <input
+          className="date-input"
+          type="date"
+          value={date}
+          aria-label={`${label} 날짜`}
+          onChange={(event) => onChange(updateDateTimePart(value, 'date', event.target.value))}
+        />
+        <div className="time-number-inputs">
+          <input
+            type="number"
+            inputMode="numeric"
+            min="0"
+            max="23"
+            value={hour}
+            disabled={!date}
+            aria-label={`${label} 시`}
+            onChange={(event) => onChange(updateDateTimePart(value, 'hour', event.target.value))}
+            onBlur={(event) => onChange(updateDateTimePart(value, 'hour', normalizeTimePart(event.target.value, 23)))}
+          />
+          <span>시</span>
+          <input
+            type="number"
+            inputMode="numeric"
+            min="0"
+            max="59"
+            value={minute}
+            disabled={!date}
+            aria-label={`${label} 분`}
+            onChange={(event) => onChange(updateDateTimePart(value, 'minute', event.target.value))}
+            onBlur={(event) => onChange(updateDateTimePart(value, 'minute', normalizeTimePart(event.target.value, 59)))}
+          />
+          <span>분</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function formatAttendanceRewards(rewards: AttendanceRewards | null | undefined, eventType: AppEventType) {
   const entries = Object.entries(rewards ?? {})
   if (entries.length === 0) {
@@ -995,6 +1069,28 @@ function getEventBoundaryHour(eventType: AppEventType) {
 function hasBoundaryHour(dateTimeLocal: string, boundaryHour: number) {
   const time = dateTimeLocal.split('T')[1]
   return time === `${String(boundaryHour).padStart(2, '0')}:00`
+}
+
+function isCompleteLocalDateTime(value: string) {
+  return /^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d$/.test(value)
+}
+
+function updateDateTimePart(value: string, part: 'date' | 'hour' | 'minute', nextValue: string) {
+  const [currentDate = '', currentTime = ''] = value.split('T')
+  const [currentHour = '00', currentMinute = '00'] = currentTime.split(':')
+
+  if (part === 'date') {
+    return nextValue ? `${nextValue}T${currentHour || '00'}:${currentMinute || '00'}` : ''
+  }
+
+  if (!currentDate) return value
+  if (part === 'hour') return `${currentDate}T${nextValue}:${currentMinute || '00'}`
+  return `${currentDate}T${currentHour || '00'}:${nextValue}`
+}
+
+function normalizeTimePart(value: string, max: number) {
+  if (!value.trim()) return '00'
+  return String(Math.min(Math.max(Number(value), 0), max)).padStart(2, '0')
 }
 
 function rewardsToRows(rewards?: AttendanceRewards | null): RewardRow[] {
