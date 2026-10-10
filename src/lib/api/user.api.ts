@@ -1,18 +1,11 @@
 import { apiClient } from './axios-instance'
+import type { ApiEnvelope, PageQuery, PageResult } from './types'
 
 export type UserAccountState = 'NORMAL' | 'DELETED' | 'SUSPENDED'
 export type OAuthProvider = 'KAKAO' | 'NAVER' | 'X' | 'GOOGLE' | 'APPLE'
 export type SanctionType = 'SUSPENDED' | 'WITHDRAWN' | 'RESTORED' | 'CONTENT_DELETED'
 export type SanctionSource = 'REPORT' | 'MANUAL'
 export type UserContentType = 'FEED' | 'FEED_REPLY' | 'REVIEW' | 'TOPIC_ROOM' | 'CHAT'
-
-export type ApiEnvelope<T> = {
-  isSuccess: boolean
-  code: string
-  message: string
-  result: T
-  timestamp: string
-}
 
 export type AdminUser = {
   userId: number
@@ -26,15 +19,7 @@ export type AdminUser = {
   reportedCount: number
 }
 
-export type AdminUserListResult = {
-  content: AdminUser[]
-  page: number
-  size: number
-  totalElements: number
-  totalPages: number
-  hasNext: boolean
-  hasPrevious: boolean
-}
+export type AdminUserListResult = PageResult<AdminUser>
 
 export type AdminUserDetail = AdminUser & {
   activityStats: {
@@ -81,43 +66,41 @@ export type CreateSanctionRequest = {
   memo?: string
 }
 
-export const getAdminUsers = async (params?: {
+export type AdminUserListParams = PageQuery & {
   userId?: number
   nickName?: string
   state?: UserAccountState
-  page?: number
-  size?: number
-  sort?: string[]
-}): Promise<ApiEnvelope<AdminUserListResult>> => {
-  const response = await apiClient.get('/api/v1/admin/users', { params })
+}
+
+const BASE = '/api/v1/admin/users'
+
+export const getAdminUsers = async (params?: AdminUserListParams) => {
+  const response = await apiClient.get<ApiEnvelope<AdminUserListResult>>(BASE, { params })
   return response.data
 }
 
-export const getAdminUser = async (userId: number): Promise<ApiEnvelope<AdminUserDetail>> => {
-  const response = await apiClient.get(`/api/v1/admin/users/${userId}`)
+export const getAdminUser = async (userId: number) => {
+  const response = await apiClient.get<ApiEnvelope<AdminUserDetail>>(`${BASE}/${userId}`)
   return response.data
 }
 
-export const getAdminUserContents = async (
-  userId: number,
-  params?: { page?: number; size?: number; sort?: string[] },
-): Promise<ApiEnvelope<{ content: AdminUserContent[]; page: number; size: number; totalElements: number; totalPages: number; hasNext: boolean; hasPrevious: boolean }>> => {
-  const response = await apiClient.get(`/api/v1/admin/users/${userId}/contents`, { params })
+export const getAdminUserContents = async (userId: number, params?: PageQuery) => {
+  const response = await apiClient.get<ApiEnvelope<PageResult<AdminUserContent>>>(
+    `${BASE}/${userId}/contents`,
+    { params },
+  )
   return response.data
 }
 
-export const getAdminUserSanctions = async (
-  userId: number,
-  params?: { page?: number; size?: number; sort?: string[] },
-): Promise<ApiEnvelope<{ content: AdminUserSanction[]; page: number; size: number; totalElements: number; totalPages: number; hasNext: boolean; hasPrevious: boolean }>> => {
-  const response = await apiClient.get(`/api/v1/admin/users/${userId}/sanctions`, { params })
+export const getAdminUserSanctions = async (userId: number, params?: PageQuery) => {
+  const response = await apiClient.get<ApiEnvelope<PageResult<AdminUserSanction>>>(
+    `${BASE}/${userId}/sanctions`,
+    { params },
+  )
   return response.data
 }
 
-export const createAdminUserSanction = async (
-  userId: number,
-  data: CreateSanctionRequest,
-): Promise<ApiEnvelope<object>> => {
-  const response = await apiClient.post(`/api/v1/admin/users/${userId}/sanctions`, data)
+export const createAdminUserSanction = async (userId: number, data: CreateSanctionRequest) => {
+  const response = await apiClient.post<ApiEnvelope<object>>(`${BASE}/${userId}/sanctions`, data)
   return response.data
 }

@@ -1,328 +1,88 @@
 'use client'
 
-import { FormEvent, Fragment, useEffect, useState } from 'react'
-import { AxiosError } from 'axios'
+import { Fragment, useState } from 'react'
 import {
   cancelAppEvent,
   createAppEvent,
-  drawAppEventWinners,
   getAppEvent,
   getAppEvents,
-  getAttendanceEventWinners,
   updateAppEvent,
   type AppEvent,
   type AppEventPayload,
-  type AppEventStatus,
-  type AppEventType,
-  type AppEventWinnerDrawResult,
-  type AttendanceEventWinnerResult,
-  type AttendanceRewards,
-  type PromotionType,
 } from '@/lib/api/app-event.api'
-import {
-  formatDateTime,
-  toDatetimeLocalValue,
-  toLocalDateTimeString,
-} from '@/lib/utils/date-format'
-import {
-  isCurrentMarketingPushTimeAllowed,
-  MARKETING_PUSH_TIME_LABEL,
-} from '@/lib/utils/notification-rules'
-import { createAdminNotification } from '@/lib/api/notification.api'
+import { formatLoadErrorMessage, getApiErrorInfo, getApiErrorMessage, logApiError } from '@/lib/api/errors'
+import { usePagedList } from '@/lib/hooks/usePagedList'
+import { formatDateTime } from '@/lib/utils/date-format'
+import { MARKETING_PUSH_TIME_LABEL } from '@/lib/utils/notification-rules'
+import { CreateButton, PageHeader } from '@/components/admin/PageHeader'
+import { ListToolbar } from '@/components/admin/SearchBox'
+import { Pagination } from '@/components/admin/Pagination'
+import { DetailPanelRow, IdChip, isClosedStatus, RowActions, StatusChip, TableMessageRow } from '@/components/admin/Table'
+import { eventColumns, eventTypeLabels, promotionDesigns, promotionTypes, statusDesigns } from '@/features/app-event/lib/app-event-labels'
+import { AppEventDetail } from '@/features/app-event/ui/AppEventDetail'
+import { AppEventFormModal } from '@/features/app-event/ui/AppEventFormModal'
 
-type FormState = {
-  name: string
-  description: string
-  eventType: AppEventType
-  pageKey: string
-  startAt: string
-  endAt: string
-  hasWinner: boolean
-  promotionTypes: PromotionType[]
-  rewardRows: RewardRow[]
-}
-
-type RewardRow = {
-  condition: string
-  value: string
-}
-
-const emptyForm: FormState = {
-  name: '',
-  description: '',
-  eventType: 'ATTENDANCE',
-  pageKey: '',
-  startAt: '',
-  endAt: '',
-  hasWinner: false,
-  promotionTypes: [],
-  rewardRows: [],
-}
-
-type ApiErrorBody = {
-  code?: string
-  message?: string
-}
-
-const promotionLabels: Record<PromotionType, string> = {
-  PUSH: '푸시',
-  POPUP: '팝업',
-  BANNER: '배너',
-}
-
-const eventTypeLabels: Record<AppEventType, string> = {
-  GENERAL: '일반',
-  ATTENDANCE: '출석 체크',
-  STORY_CARD: '오늘의 스토리 카드',
-}
-
-const eventTypes: AppEventType[] = ['ATTENDANCE', 'STORY_CARD', 'GENERAL']
-
-const eventColumns = [
-  { key: 'id', label: 'appEventID' },
-  { key: 'name', label: '이벤트 명' },
-  { key: 'period', label: '이벤트 기간' },
-  { key: 'children', label: '이벤트 하위 목록' },
-  { key: 'actions', label: '작업' },
-] as const
-
-const statusDesigns: Record<AppEventStatus, { label: string; className: string }> = {
-  SCHEDULED: { label: '예약 대기', className: 'event-state-scheduled' },
-  ACTIVE: { label: '진행 중', className: 'event-state-active' },
-  ENDED: { label: '종료 완료', className: 'event-state-ended' },
-  CANCELED: { label: '강제 종료', className: 'event-state-canceled' },
-}
-
-const promotionDesigns: Record<PromotionType, { label: string; className: string }> = {
-  PUSH: { label: '푸시', className: 'event-type-push' },
-  POPUP: { label: '팝업', className: 'event-type-popup' },
-  BANNER: { label: '배너', className: 'event-type-banner' },
-}
-
-const promotionTypes: PromotionType[] = ['PUSH', 'POPUP', 'BANNER']
-
-const emptyRewardRow = (): RewardRow => ({ condition: '', value: '' })
-
-const getDefaultWinnerPushTitle = (event: AppEvent) =>
-  `[당첨 안내] ${event.name}`
-
-const getDefaultWinnerPushContent = (event: AppEvent) =>
-  `${event.name} 이벤트에 당첨되셨어요. 자세한 내용은 앱에서 확인해주세요.`
+type ModalState = { mode: 'create' } | { mode: 'edit'; event: AppEvent } | null
 
 export default function InAppEventPage() {
-  const [events, setEvents] = useState<AppEvent[]>([])
-  const [selectedEvent, setSelectedEvent] = useState<AppEvent | null>(null)
-  const [searchQuery, setSearchQuery] = useState('')
-  const [appliedKeyword, setAppliedKeyword] = useState('')
-  const [currentPage, setCurrentPage] = useState(0)
-  const [totalPages, setTotalPages] = useState(0)
-  const [totalElements, setTotalElements] = useState(0)
-  const [loading, setLoading] = useState(false)
-  const [detailLoading, setDetailLoading] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [drawingWinners, setDrawingWinners] = useState(false)
-  const [loadingAttendanceWinners, setLoadingAttendanceWinners] = useState(false)
-  const [sendingWinnerPush, setSendingWinnerPush] = useState(false)
-  const [winnerCount, setWinnerCount] = useState('')
-  const [winnerPushTitle, setWinnerPushTitle] = useState('')
-  const [winnerPushContent, setWinnerPushContent] = useState('')
-  const [winnerDrawResult, setWinnerDrawResult] = useState<AppEventWinnerDrawResult | null>(null)
-  const [attendanceWinnerResult, setAttendanceWinnerResult] = useState<AttendanceEventWinnerResult | null>(null)
-  const [errorMessage, setErrorMessage] = useState('')
-  const [modalMode, setModalMode] = useState<'create' | 'edit' | null>(null)
-  const [form, setForm] = useState<FormState>(emptyForm)
-
-  const fetchEvents = async (page = currentPage, keyword = appliedKeyword) => {
-    setLoading(true)
-    setErrorMessage('')
-    try {
-      const response = await getAppEvents(page, keyword.trim() || undefined)
-      if (response.isSuccess) {
-        setEvents(response.result.content)
-        setCurrentPage(response.result.page)
-        setTotalPages(response.result.totalPages)
-        setTotalElements(response.result.totalElements)
-      }
-    } catch (error) {
+  const list = usePagedList<AppEvent>({
+    fetchPage: getAppEvents,
+    getLoadErrorMessage: (error) => formatLoadErrorMessage('앱 이벤트 목록을 불러오지 못했습니다.', error),
+    onLoadError: (error, page) => {
       const errorInfo = getApiErrorInfo(error)
-
       console.warn(
-        `앱 이벤트 목록 조회 실패: status=${errorInfo.status ?? 'unknown'}, code=${errorInfo.code ?? 'unknown'}, message=${errorInfo.message ?? 'unknown'}, page=${page}`
+        `앱 이벤트 목록 조회 실패: status=${errorInfo.status ?? 'unknown'}, code=${errorInfo.code ?? 'unknown'}, message=${errorInfo.message ?? 'unknown'}, page=${page}`,
       )
       console.warn('앱 이벤트 목록 조회 응답:', errorInfo.data ?? error)
-      setErrorMessage(errorInfo.message ? `앱 이벤트 목록을 불러오지 못했습니다. (${errorInfo.message})` : '앱 이벤트 목록을 불러오지 못했습니다.')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    void fetchEvents(currentPage, appliedKeyword)
-  }, [currentPage, appliedKeyword])
-
-  const handleSearchSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    setCurrentPage(0)
-    setAppliedKeyword(searchQuery)
-  }
+    },
+  })
+  const [selectedEvent, setSelectedEvent] = useState<AppEvent | null>(null)
+  const [detailLoading, setDetailLoading] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [modal, setModal] = useState<ModalState>(null)
 
   const handleSelectEvent = async (appEventId: number) => {
     if (selectedEvent?.id === appEventId) {
       setSelectedEvent(null)
-      setWinnerCount('')
-      setWinnerPushTitle('')
-      setWinnerPushContent('')
-      setWinnerDrawResult(null)
-      setAttendanceWinnerResult(null)
       return
     }
 
     setDetailLoading(true)
-    setWinnerCount('')
-    setWinnerPushTitle('')
-    setWinnerPushContent('')
-    setWinnerDrawResult(null)
-    setAttendanceWinnerResult(null)
-    setErrorMessage('')
+    list.setErrorMessage('')
     try {
       const response = await getAppEvent(appEventId)
       if (response.isSuccess) {
         setSelectedEvent(response.result)
-        setWinnerPushTitle(getDefaultWinnerPushTitle(response.result))
-        setWinnerPushContent(getDefaultWinnerPushContent(response.result))
-        if (response.result.hasWinner && response.result.eventType === 'ATTENDANCE') {
-          await loadAttendanceWinners(response.result.id, false)
-        }
       }
     } catch (error) {
-      const errorInfo = getApiErrorInfo(error)
-      console.error('앱 이벤트 상세 조회 실패:', {
-        status: errorInfo.status,
-        code: errorInfo.code,
-        message: errorInfo.message,
-        data: errorInfo.data,
-        appEventId,
-        error,
-      })
-      setErrorMessage(errorInfo.message ? `앱 이벤트 상세를 불러오지 못했습니다. (${errorInfo.message})` : '앱 이벤트 상세를 불러오지 못했습니다.')
+      logApiError('앱 이벤트 상세 조회 실패:', error, { appEventId })
+      list.setErrorMessage(formatLoadErrorMessage('앱 이벤트 상세를 불러오지 못했습니다.', error))
     } finally {
       setDetailLoading(false)
     }
   }
 
-  const openCreateModal = () => {
-    setForm(emptyForm)
-    setModalMode('create')
-  }
-
-  const openEditModal = (event: AppEvent) => {
-    setForm({
-      name: event.name,
-      description: event.description,
-      eventType: event.eventType,
-      pageKey: event.pageKey ?? '',
-      startAt: toDatetimeLocalValue(event.startAt),
-      endAt: toDatetimeLocalValue(event.endAt),
-      hasWinner: event.hasWinner,
-      promotionTypes: event.promotionTypes,
-      rewardRows: rewardsToRows(event.attendanceRewards),
-    })
-    setModalMode('edit')
-  }
-
   const closeModal = () => {
     if (saving) return
-    setModalMode(null)
-    setForm(emptyForm)
+    setModal(null)
   }
 
-  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-
-    if (!form.name.trim() || !form.description.trim() || !form.eventType || !form.startAt || !form.endAt) {
-      alert('이벤트명, 설명, 이벤트 유형, 시작일시, 종료일시를 모두 입력해주세요.')
-      return
-    }
-
-    if (!isCompleteLocalDateTime(form.startAt) || !isCompleteLocalDateTime(form.endAt)) {
-      alert('시작일시와 종료일시의 날짜, 시, 분을 올바르게 입력해주세요.')
-      return
-    }
-
-    if (form.name.trim().length > 100 || form.description.trim().length > 500) {
-      alert('이벤트명은 100자, 설명은 500자 이하로 입력해주세요.')
-      return
-    }
-
-    const pageKey = form.pageKey.trim()
-    if (pageKey && !/^[a-z0-9-]{1,50}$/.test(pageKey)) {
-      alert('페이지 키는 영소문자, 숫자, 하이픈만 사용해 50자 이하로 입력해주세요.')
-      return
-    }
-
-    if (form.startAt >= form.endAt) {
-      alert('종료 일시는 시작 일시 이후여야 합니다.')
-      return
-    }
-
-    const boundaryHour = getEventBoundaryHour(form.eventType)
-    if (boundaryHour !== null && (!hasBoundaryHour(form.startAt, boundaryHour) || !hasBoundaryHour(form.endAt, boundaryHour))) {
-      alert(`${eventTypeLabels[form.eventType]} 이벤트의 시작·종료 시각은 ${String(boundaryHour).padStart(2, '0')}:00이어야 합니다.`)
-      return
-    }
-
-    if (form.promotionTypes.length === 0) {
-      alert('홍보 수단을 하나 이상 선택해주세요.')
-      return
-    }
-
-    const attendanceRewards = parseRewardRows(form.hasWinner ? form.rewardRows : [])
-    if (!attendanceRewards.ok) {
-      alert(attendanceRewards.message)
-      return
-    }
-
-    const payload: AppEventPayload = {
-      name: form.name.trim(),
-      description: form.description.trim(),
-      eventType: form.eventType,
-      pageKey: pageKey || null,
-      startAt: toLocalDateTimeString(form.startAt),
-      endAt: toLocalDateTimeString(form.endAt),
-      hasWinner: form.hasWinner,
-      promotionTypes: form.promotionTypes,
-      attendanceRewards: attendanceRewards.value,
-    }
+  const handleSubmit = async (payload: AppEventPayload) => {
+    if (!modal) return
+    const isEdit = modal.mode === 'edit'
 
     setSaving(true)
     try {
-      if (modalMode === 'edit' && selectedEvent) {
-        const response = await updateAppEvent(selectedEvent.id, payload)
-        if (response.isSuccess) {
-          setSelectedEvent(response.result)
-        }
-      } else {
-        const response = await createAppEvent(payload)
-        if (response.isSuccess) {
-          setSelectedEvent(response.result)
-          setCurrentPage(0)
-        }
+      const response = isEdit ? await updateAppEvent(modal.event.id, payload) : await createAppEvent(payload)
+      if (response.isSuccess) {
+        setSelectedEvent(response.result)
       }
 
-      setModalMode(null)
-      setForm(emptyForm)
-      await fetchEvents(modalMode === 'create' ? 0 : currentPage, appliedKeyword)
+      setModal(null)
+      list.reload(isEdit ? undefined : 0)
     } catch (error) {
-      const errorInfo = getApiErrorInfo(error)
-      console.error(modalMode === 'edit' ? '앱 이벤트 수정 실패:' : '앱 이벤트 생성 실패:', {
-        status: errorInfo.status,
-        code: errorInfo.code,
-        message: errorInfo.message,
-        data: errorInfo.data,
-        payload,
-        error,
-      })
-      alert(errorInfo.message || (modalMode === 'edit' ? '앱 이벤트 수정에 실패했습니다.' : '앱 이벤트 생성에 실패했습니다.'))
+      logApiError(isEdit ? '앱 이벤트 수정 실패:' : '앱 이벤트 생성 실패:', error, { payload })
+      alert(getApiErrorMessage(error, isEdit ? '앱 이벤트 수정에 실패했습니다.' : '앱 이벤트 생성에 실패했습니다.'))
     } finally {
       setSaving(false)
     }
@@ -336,220 +96,21 @@ export default function InAppEventPage() {
       const response = await cancelAppEvent(event.id)
       if (response.isSuccess) {
         setSelectedEvent(response.result)
-        await fetchEvents(currentPage, appliedKeyword)
+        list.reload()
       }
     } catch (error) {
-      const errorInfo = getApiErrorInfo(error)
-      console.error('앱 이벤트 강제 종료 실패:', {
-        status: errorInfo.status,
-        code: errorInfo.code,
-        message: errorInfo.message,
-        data: errorInfo.data,
-        appEventId: event.id,
-        error,
-      })
-      alert(errorInfo.message || '앱 이벤트 강제 종료에 실패했습니다.')
+      logApiError('앱 이벤트 강제 종료 실패:', error, { appEventId: event.id })
+      alert(getApiErrorMessage(error, '앱 이벤트 강제 종료에 실패했습니다.'))
     }
-  }
-
-  const handleDrawWinners = async (event: AppEvent) => {
-    const parsedWinnerCount = Number(winnerCount)
-    if (!Number.isInteger(parsedWinnerCount) || parsedWinnerCount < 1 || parsedWinnerCount > 1000) {
-      alert('추첨 인원은 1명 이상 1,000명 이하의 정수로 입력해주세요.')
-      return
-    }
-
-    const confirmed = window.confirm(
-      `'${event.name}' 이벤트의 당첨자 ${parsedWinnerCount}명을 확정할까요?\n확정 후에는 이후 참여자가 반영되지 않으며 재추첨할 수 없습니다.`,
-    )
-    if (!confirmed) return
-
-    setDrawingWinners(true)
-    try {
-      const response = await drawAppEventWinners(event.id, parsedWinnerCount)
-      if (response.isSuccess) {
-        setWinnerDrawResult(response.result)
-        if (event.eventType === 'ATTENDANCE') {
-          await loadAttendanceWinners(event.id, false)
-        }
-        alert(
-          response.result.alreadyFinalized
-            ? '이미 확정된 당첨자 결과를 불러왔습니다.'
-            : `${response.result.winners.length}명의 당첨자를 확정했습니다.`,
-        )
-      }
-    } catch (error) {
-      const errorInfo = getApiErrorInfo(error)
-      alert(errorInfo.message || '당첨자 확정에 실패했습니다.')
-    } finally {
-      setDrawingWinners(false)
-    }
-  }
-
-  const loadAttendanceWinners = async (appEventId: number, showFailureAlert = true) => {
-    setLoadingAttendanceWinners(true)
-    try {
-      const response = await getAttendanceEventWinners(appEventId)
-      if (response.isSuccess) {
-        setAttendanceWinnerResult(response.result)
-      }
-    } catch (error) {
-      const errorInfo = getApiErrorInfo(error)
-      console.error('출석 이벤트 당첨자 조회 실패:', {
-        status: errorInfo.status,
-        code: errorInfo.code,
-        message: errorInfo.message,
-        data: errorInfo.data,
-        appEventId,
-        error,
-      })
-      if (showFailureAlert) {
-        alert(errorInfo.message || '출석 이벤트 당첨자 조회에 실패했습니다.')
-      }
-    } finally {
-      setLoadingAttendanceWinners(false)
-    }
-  }
-
-  const handleSendWinnerPush = async (event: AppEvent) => {
-    if (!event.hasWinner) {
-      alert('당첨자를 뽑는 이벤트만 당첨자 푸시를 보낼 수 있습니다.')
-      return
-    }
-
-    const title = winnerPushTitle.trim()
-    const content = winnerPushContent.trim()
-    if (!title || !content) {
-      alert('푸시 제목과 내용을 입력해주세요.')
-      return
-    }
-
-    if (!isCurrentMarketingPushTimeAllowed()) {
-      alert(`마케팅 푸시는 ${MARKETING_PUSH_TIME_LABEL}에만 즉시 발송할 수 있습니다. 푸시 관리에서 허용 시간으로 예약해주세요.`)
-      return
-    }
-
-    const confirmed = window.confirm(
-      `'${event.name}' 이벤트의 확정 당첨자에게 푸시를 즉시 발송할까요?\n푸시 관리 목록에도 기록됩니다.`,
-    )
-    if (!confirmed) return
-
-    setSendingWinnerPush(true)
-    try {
-      const response = await createAdminNotification({
-        title,
-        content,
-        notificationType: 'MARKETING',
-        targetAudience: 'EVENT_WINNERS',
-        sendType: 'IMMEDIATE',
-        scheduledAt: null,
-        targetType: 'APP_EVENT',
-        eventTargetId: event.id,
-        targetLink: null,
-      })
-
-      if (response.isSuccess) {
-        alert(`당첨자 대상 푸시가 생성되었습니다. 알림 ID: ${response.result}`)
-      }
-    } catch (error) {
-      const errorInfo = getApiErrorInfo(error)
-      alert(errorInfo.message || '당첨자 푸시 생성에 실패했습니다.')
-    } finally {
-      setSendingWinnerPush(false)
-    }
-  }
-
-  const togglePromotionType = (type: PromotionType) => {
-    setForm((current) => ({
-      ...current,
-      promotionTypes: current.promotionTypes.includes(type)
-        ? current.promotionTypes.filter((item) => item !== type)
-        : [...current.promotionTypes, type],
-    }))
-  }
-
-  const updateRewardRow = (
-    index: number,
-    field: keyof RewardRow,
-    value: string,
-  ) => {
-    setForm((current) => ({
-      ...current,
-      rewardRows: current.rewardRows.map((row, rowIndex) =>
-        rowIndex === index ? { ...row, [field]: value } : row,
-      ),
-    }))
-  }
-
-  const addRewardRow = () => {
-    setForm((current) => ({
-      ...current,
-      rewardRows: [...current.rewardRows, emptyRewardRow()],
-    }))
-  }
-
-  const removeRewardRow = (index: number) => {
-    setForm((current) => ({
-      ...current,
-      rewardRows: current.rewardRows.filter((_, rowIndex) => rowIndex !== index),
-    }))
-  }
-
-  const renderPagination = () => {
-    if (totalPages <= 1) return null
-
-    return (
-      <div className="pagination">
-        <button
-          className="pagination-button"
-          onClick={() => setCurrentPage((page) => Math.max(0, page - 1))}
-          disabled={currentPage === 0}
-          type="button"
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="m15 18-6-6 6-6" />
-          </svg>
-        </button>
-
-        {Array.from({ length: totalPages }).map((_, index) => (
-          <button
-            key={index}
-            className={`pagination-button ${currentPage === index ? 'active' : ''}`}
-            onClick={() => setCurrentPage(index)}
-            type="button"
-          >
-            {index + 1}
-          </button>
-        ))}
-
-        <button
-          className="pagination-button"
-          onClick={() => setCurrentPage((page) => Math.min(totalPages - 1, page + 1))}
-          disabled={currentPage >= totalPages - 1}
-          type="button"
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="m9 18 6-6-6-6" />
-          </svg>
-        </button>
-      </div>
-    )
   }
 
   return (
     <div className="event-page-container">
-      <div className="page-head">
-        <div>
-          <h1>인앱 이벤트 관리</h1>
-          <p className="page-sub">푸시 알림, 팝업, 배너에 연결할 앱 이벤트를 생성하고 관리합니다.</p>
-        </div>
-        <button className="btn-primary" onClick={openCreateModal} type="button">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M5 12h14M12 5v14" />
-          </svg>
-          새 이벤트 만들기
-        </button>
-      </div>
+      <PageHeader
+        title="인앱 이벤트 관리"
+        description="푸시 알림, 팝업, 배너에 연결할 앱 이벤트를 생성하고 관리합니다."
+        action={<CreateButton label="새 이벤트 만들기" onClick={() => setModal({ mode: 'create' })} />}
+      />
 
       <div className="event-workflow-notice" role="note">
         <span className="event-workflow-notice-icon" aria-hidden="true">i</span>
@@ -560,23 +121,17 @@ export default function InAppEventPage() {
         </div>
       </div>
 
-      <div className="toolbar">
-        <form className="search-box" onSubmit={handleSearchSubmit}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="11" cy="11" r="7" />
-            <path d="m21 21-4.3-4.3" />
-          </svg>
-          <input
-            type="text"
-            placeholder="이벤트명 검색"
-            value={searchQuery}
-            onChange={(event) => setSearchQuery(event.target.value)}
-          />
-        </form>
-        <span className="filter-note">전체 {totalElements}건</span>
-      </div>
+      <ListToolbar
+        search={{
+          value: list.searchQuery,
+          onChange: list.setSearchQuery,
+          placeholder: '이벤트명 검색',
+          onSubmit: list.submitSearch,
+        }}
+        totalCount={list.totalElements}
+      />
 
-      {errorMessage ? <p className="login-message">{errorMessage}</p> : null}
+      {list.errorMessage ? <p className="login-message">{list.errorMessage}</p> : null}
 
       <div className="event-table-panel in-app-event-panel">
         <div className="table-title-row">
@@ -591,40 +146,31 @@ export default function InAppEventPage() {
             </tr>
           </thead>
           <tbody>
-            {loading ? (
-              <tr>
-                <td colSpan={eventColumns.length}>로딩 중...</td>
-              </tr>
-            ) : events.length === 0 ? (
-              <tr>
-                <td colSpan={eventColumns.length}>등록된 앱 이벤트가 없습니다.</td>
-              </tr>
+            {list.loading ? (
+              <TableMessageRow colSpan={eventColumns.length}>로딩 중...</TableMessageRow>
+            ) : list.items.length === 0 ? (
+              <TableMessageRow colSpan={eventColumns.length}>등록된 앱 이벤트가 없습니다.</TableMessageRow>
             ) : (
-              events.map((event) => {
+              list.items.map((event) => {
                 const isOpen = selectedEvent?.id === event.id
 
                 return (
                   <Fragment key={event.id}>
                     <tr
-                      key={event.id}
                       className={`event-row ${isOpen ? 'open' : ''}`}
                       onClick={() => void handleSelectEvent(event.id)}
                     >
                       <td>
-                        <span className="id-chip">
-                          <span className="dot"></span>
-                          {event.id}
-                        </span>
+                        <IdChip value={event.id} />
                       </td>
                       <td>
                         <div className="event-name-cell">
                           <span className="ev-name">{event.name}</span>
-                          <span className="event-type-chip event-type-empty">
-                            {formatEventType(event.eventType)}
-                          </span>
-                          <span className={`event-state-chip ${statusDesigns[event.status].className}`}>
-                            {statusDesigns[event.status].label}
-                          </span>
+                          <span className="event-type-chip event-type-empty">{eventTypeLabels[event.eventType]}</span>
+                          <StatusChip
+                            className={statusDesigns[event.status].className}
+                            label={statusDesigns[event.status].label}
+                          />
                         </div>
                       </td>
                       <td className="period">
@@ -654,169 +200,25 @@ export default function InAppEventPage() {
                         </div>
                       </td>
                       <td>
-                        <div className="in-app-row-actions" onClick={(clickEvent) => clickEvent.stopPropagation()}>
-                          <button className="btn-edit" onClick={() => openEditModal(event)} type="button">
+                        <RowActions className="in-app-row-actions">
+                          <button className="btn-edit" onClick={() => setModal({ mode: 'edit', event })} type="button">
                             수정
                           </button>
                           <button
                             className="btn-cancel"
                             onClick={() => void handleCancelEvent(event)}
-                            disabled={event.status === 'ENDED' || event.status === 'CANCELED'}
+                            disabled={isClosedStatus(event.status)}
                             type="button"
                           >
                             취소
                           </button>
-                        </div>
+                        </RowActions>
                       </td>
                     </tr>
                     {isOpen && selectedEvent ? (
-                      <tr className="detail-row" key={`${event.id}-detail`}>
-                        <td colSpan={eventColumns.length}>
-                          <div className="report-detail-panel">
-                            {detailLoading ? (
-                              <div>상세 정보를 불러오는 중...</div>
-                            ) : (
-                              <>
-                                <DetailRow label="이벤트명" value={selectedEvent.name} />
-                                <DetailRow label="설명" value={selectedEvent.description} />
-                                <DetailRow label="이벤트 유형" value={formatEventType(selectedEvent.eventType)} />
-                                <DetailRow label="페이지 키" value={selectedEvent.pageKey || '유형별 기본 화면'} />
-                                <DetailRow label="시작일시" value={formatDateTime(selectedEvent.startAt)} />
-                                <DetailRow label="종료일시" value={formatDateTime(selectedEvent.endAt)} />
-                                <DetailRow
-                                  label="보상 설정"
-                                  value={formatAttendanceRewards(selectedEvent.attendanceRewards, selectedEvent.eventType)}
-                                />
-                                <DetailRow label="생성일시" value={formatDateTime(selectedEvent.createdAt)} />
-                                <DetailRow label="수정일시" value={formatDateTime(selectedEvent.updatedAt)} />
-                                {selectedEvent.hasWinner ? (
-                                  <div className="winner-draw-card">
-                                    <div className="winner-draw-head">
-                                      <div>
-                                        <strong>당첨자 추첨</strong>
-                                        <p>
-                                          이벤트가 종료된 뒤 최초 1회만 확정됩니다. 이미 확정된 이벤트는 재추첨하지 않고 기존 당첨자를 불러옵니다.
-                                        </p>
-                                      </div>
-                                      <span className={`event-state-chip ${selectedEvent.status === 'ENDED' || selectedEvent.status === 'CANCELED' ? 'event-state-ended' : 'event-state-scheduled'}`}>
-                                        {selectedEvent.status === 'ENDED' || selectedEvent.status === 'CANCELED' ? '추첨 가능' : '종료 필요'}
-                                      </span>
-                                    </div>
-                                    <div className="winner-draw-actions">
-                                      <input
-                                        type="number"
-                                        inputMode="numeric"
-                                        min="1"
-                                        max="1000"
-                                        placeholder="당첨자 수"
-                                        value={winnerCount}
-                                        onChange={(event) => setWinnerCount(event.target.value)}
-                                        disabled={drawingWinners || loadingAttendanceWinners}
-                                      />
-                                      <button
-                                        className="table-action-button winner-primary-button"
-                                        disabled={drawingWinners || loadingAttendanceWinners}
-                                        onClick={() => void handleDrawWinners(selectedEvent)}
-                                        type="button"
-                                      >
-                                        {drawingWinners ? '추첨 중...' : '당첨자 확정하기'}
-                                      </button>
-                                      {selectedEvent.eventType === 'ATTENDANCE' ? (
-                                        <button
-                                          className="table-action-button"
-                                          disabled={drawingWinners || loadingAttendanceWinners}
-                                          onClick={() => void loadAttendanceWinners(selectedEvent.id)}
-                                          type="button"
-                                        >
-                                          {loadingAttendanceWinners ? '조회 중...' : '출석 응모권/결과 조회'}
-                                        </button>
-                                      ) : null}
-                                    </div>
-                                    <p className="winner-draw-note">
-                                      확정된 당첨자는 발송 대상 “이벤트 당첨자”와 이 appEventID로 연결됩니다. 아래에서 푸시를 만들면 푸시 알림 관리에도 기록됩니다.
-                                    </p>
-                                    <div className="winner-push-panel">
-                                      <label>
-                                        <span>푸시 제목</span>
-                                        <input
-                                          value={winnerPushTitle}
-                                          onChange={(event) => setWinnerPushTitle(event.target.value)}
-                                          maxLength={100}
-                                          disabled={sendingWinnerPush}
-                                        />
-                                      </label>
-                                      <label>
-                                        <span>푸시 내용</span>
-                                        <textarea
-                                          value={winnerPushContent}
-                                          onChange={(event) => setWinnerPushContent(event.target.value)}
-                                          maxLength={500}
-                                          disabled={sendingWinnerPush}
-                                        />
-                                      </label>
-                                      <p className="marketing-push-notice">
-                                        당첨자 푸시는 마케팅 알림으로 발송되며, 한국 시간 기준 {MARKETING_PUSH_TIME_LABEL}에만 즉시 발송할 수 있습니다.
-                                      </p>
-                                      <div className="winner-push-actions">
-                                        <button
-                                          className="table-action-button winner-push-link"
-                                          disabled={sendingWinnerPush || !(winnerDrawResult || attendanceWinnerResult)}
-                                          onClick={() => void handleSendWinnerPush(selectedEvent)}
-                                          type="button"
-                                        >
-                                          {sendingWinnerPush ? '푸시 생성 중...' : '당첨자에게 즉시 푸시 보내기'}
-                                        </button>
-                                        <a
-                                          className="winner-push-manage-link"
-                                          href={`/event/push?targetAudience=EVENT_WINNERS&targetType=APP_EVENT&eventTargetId=${selectedEvent.id}`}
-                                        >
-                                          푸시 관리에서 작성
-                                        </a>
-                                      </div>
-                                    </div>
-                                    {attendanceWinnerResult?.appEventId === selectedEvent.id ? (
-                                      <div className="winner-result-list">
-                                        <div className="winner-result-summary">
-                                          후보자 {attendanceWinnerResult.candidateCount}명 · 총 응모권 {attendanceWinnerResult.totalTickets}장 · 확정 당첨자 {attendanceWinnerResult.winners.length}명
-                                        </div>
-                                        {attendanceWinnerResult.winners.length > 0 ? (
-                                          attendanceWinnerResult.winners.map((winner) => (
-                                            <div className="winner-result-row" key={winner.userId}>
-                                              <span>{winner.drawOrder}위</span>
-                                              <strong>{winner.nickName || '탈퇴 사용자'}</strong>
-                                              <small>User ID {winner.userId} · 응모권 {winner.ticketCount}장 · 출석 {winner.totalAttendedDays}일</small>
-                                            </div>
-                                          ))
-                                        ) : (
-                                          <div className="winner-empty">아직 확정된 당첨자가 없습니다.</div>
-                                        )}
-                                      </div>
-                                    ) : winnerDrawResult ? (
-                                      <div className="winner-result-list">
-                                        <div className="winner-result-summary">
-                                          {winnerDrawResult.alreadyFinalized ? '기존 확정 결과' : '새 확정 결과'} · 총 {winnerDrawResult.winners.length}명
-                                        </div>
-                                        {winnerDrawResult.winners.map((winner) => (
-                                          <div className="winner-result-row" key={winner.userId}>
-                                            <span>{winner.drawOrder}위</span>
-                                            <strong>{winner.nickName || '탈퇴 사용자'}</strong>
-                                            <small>User ID {winner.userId}</small>
-                                          </div>
-                                        ))}
-                                      </div>
-                                    ) : null}
-                                  </div>
-                                ) : (
-                                  <div className="winner-draw-card muted">
-                                    <strong>당첨자 추첨 없음</strong>
-                                    <p>이 이벤트는 hasWinner=false라 당첨자 확정 API를 호출하지 않습니다.</p>
-                                  </div>
-                                )}
-                              </>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
+                      <DetailPanelRow colSpan={eventColumns.length} loading={detailLoading}>
+                        <AppEventDetail event={selectedEvent} />
+                      </DetailPanelRow>
                     ) : null}
                   </Fragment>
                 )
@@ -826,331 +228,16 @@ export default function InAppEventPage() {
         </table>
       </div>
 
-      {renderPagination()}
+      <Pagination currentPage={list.currentPage} totalPages={list.totalPages} onChange={list.goToPage} />
 
-      {modalMode ? (
-        <div className="modal-overlay" onClick={closeModal}>
-          <form className="modal-container" onClick={(event) => event.stopPropagation()} onSubmit={handleSubmit}>
-            <div className="modal-header">
-              <h2>{modalMode === 'edit' ? '앱 이벤트 수정' : '새 앱 이벤트 만들기'}</h2>
-              <p>앱 이벤트 기본 정보와 연결할 홍보 수단을 입력합니다.</p>
-            </div>
-
-            <div className="modal-body">
-              <label className="field">
-                <span>이벤트명</span>
-                <input
-                  value={form.name}
-                  onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
-                />
-              </label>
-              <label className="field">
-                <span>설명</span>
-                <input
-                  value={form.description}
-                  onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
-                />
-              </label>
-              <label className="field">
-                <span>이벤트 유형</span>
-                <select
-                  value={form.eventType}
-                  onChange={(event) => setForm((current) => ({
-                    ...current,
-                    eventType: event.target.value as AppEventType,
-                  }))}
-                >
-                  {eventTypes.map((eventType) => (
-                    <option key={eventType} value={eventType}>{eventTypeLabels[eventType]}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="field">
-                <span>페이지 키 (선택)</span>
-                <input
-                  value={form.pageKey}
-                  maxLength={50}
-                  pattern="[a-z0-9-]*"
-                  placeholder="예: attendance-2026-08-17"
-                  onChange={(event) => setForm((current) => ({ ...current, pageKey: event.target.value }))}
-                />
-              </label>
-              <p className="filter-note">
-                비워두면 이벤트 유형의 기본 화면을 사용합니다. 영소문자·숫자·하이픈만 입력할 수 있습니다.
-              </p>
-              <DateTimeField
-                label="시작 일시"
-                value={form.startAt}
-                onChange={(startAt) => setForm((current) => ({ ...current, startAt }))}
-              />
-              <DateTimeField
-                label="종료 일시"
-                value={form.endAt}
-                onChange={(endAt) => setForm((current) => ({ ...current, endAt }))}
-              />
-              {getEventBoundaryHour(form.eventType) !== null ? (
-                <p className="filter-note">
-                  {eventTypeLabels[form.eventType]} 이벤트는 시작·종료 시각을 {String(getEventBoundaryHour(form.eventType)).padStart(2, '0')}:00으로 입력해야 합니다. 종료 시각은 마지막 참여일 다음 경계입니다.
-                </p>
-              ) : null}
-
-              <div className="promotion-selector" aria-label="홍보 수단 선택">
-                <span>홍보 수단</span>
-                {promotionTypes.map((type) => (
-                  <label key={type}>
-                    <input
-                      type="checkbox"
-                      checked={form.promotionTypes.includes(type)}
-                      onChange={() => togglePromotionType(type)}
-                    />
-                    {promotionLabels[type]}
-                  </label>
-                ))}
-              </div>
-
-              <label className="action-checkbox">
-                <input
-                  type="checkbox"
-                  checked={form.hasWinner}
-                  onChange={(event) =>
-                    setForm((current) => ({
-                      ...current,
-                      hasWinner: event.target.checked,
-                      rewardRows:
-                        event.target.checked && current.rewardRows.length === 0
-                          ? [emptyRewardRow()]
-                          : current.rewardRows,
-                    }))
-                  }
-                />
-                <div className="checkbox-content">
-                  <div className="checkbox-title">당첨자 안내 있음</div>
-                  <div className="checkbox-desc">이벤트 종료 후 당첨자 안내가 필요한 이벤트입니다.</div>
-                </div>
-              </label>
-
-              {form.hasWinner ? (
-                <div className="field wide">
-                  <span>이벤트 보상 설정</span>
-                  <div className="reward-row-list">
-                    {form.rewardRows.map((row, index) => (
-                      <div className="reward-row" key={index}>
-                        <input
-                          inputMode="numeric"
-                          placeholder="조건"
-                          value={row.condition}
-                          onChange={(event) => updateRewardRow(index, 'condition', event.target.value)}
-                        />
-                        <input
-                          inputMode="numeric"
-                          placeholder="보상값"
-                          value={row.value}
-                          onChange={(event) => updateRewardRow(index, 'value', event.target.value)}
-                        />
-                        <button
-                          className="table-action-button"
-                          onClick={() => removeRewardRow(index)}
-                          type="button"
-                        >
-                          삭제
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                  <button className="table-action-button" onClick={addRewardRow} type="button">
-                    보상 추가
-                  </button>
-                  {form.eventType === 'ATTENDANCE' ? (
-                    <p className="filter-note">비워두면 기본 지급표(3일 1개, 7일 2개, 12일 5개)가 적용됩니다.</p>
-                  ) : null}
-                </div>
-              ) : null}
-            </div>
-
-            <div className="modal-footer">
-              <button className="btn-modal-cancel" onClick={closeModal} disabled={saving} type="button">
-                취소
-              </button>
-              <button className="btn-modal-confirm" disabled={saving} type="submit">
-                {saving ? '저장 중...' : modalMode === 'edit' ? '수정 완료' : '이벤트 생성'}
-              </button>
-            </div>
-          </form>
-        </div>
+      {modal ? (
+        <AppEventFormModal
+          editingEvent={modal.mode === 'edit' ? modal.event : null}
+          saving={saving}
+          onClose={closeModal}
+          onSubmit={handleSubmit}
+        />
       ) : null}
     </div>
   )
-}
-
-function DetailRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="report-detail-row">
-      <span className="detail-label">{label}</span>
-      <span className="detail-value">{value}</span>
-    </div>
-  )
-}
-
-function DateTimeField({
-  label,
-  value,
-  onChange,
-}: {
-  label: string
-  value: string
-  onChange: (value: string) => void
-}) {
-  const [date = '', time = ''] = value.split('T')
-  const [hour = '', minute = ''] = time.split(':')
-
-  return (
-    <div className="field date-time-field">
-      <span>{label}</span>
-      <div className="date-time-input-row">
-        <input
-          className="date-input"
-          type="date"
-          value={date}
-          aria-label={`${label} 날짜`}
-          onChange={(event) => onChange(updateDateTimePart(value, 'date', event.target.value))}
-        />
-        <div className="time-number-inputs">
-          <input
-            type="number"
-            inputMode="numeric"
-            min="0"
-            max="23"
-            value={hour}
-            disabled={!date}
-            aria-label={`${label} 시`}
-            onChange={(event) => onChange(updateDateTimePart(value, 'hour', event.target.value))}
-            onBlur={(event) => onChange(updateDateTimePart(value, 'hour', normalizeTimePart(event.target.value, 23)))}
-          />
-          <span>시</span>
-          <input
-            type="number"
-            inputMode="numeric"
-            min="0"
-            max="59"
-            value={minute}
-            disabled={!date}
-            aria-label={`${label} 분`}
-            onChange={(event) => onChange(updateDateTimePart(value, 'minute', event.target.value))}
-            onBlur={(event) => onChange(updateDateTimePart(value, 'minute', normalizeTimePart(event.target.value, 59)))}
-          />
-          <span>분</span>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function formatAttendanceRewards(rewards: AttendanceRewards | null | undefined, eventType: AppEventType) {
-  const entries = Object.entries(rewards ?? {})
-  if (entries.length === 0) {
-    return eventType === 'ATTENDANCE' ? '기본 지급표 (3일 1개, 7일 2개, 12일 5개)' : '-'
-  }
-
-  return entries
-    .map(([condition, value]) => `조건 ${condition}: 보상 ${value}`)
-    .join(', ')
-}
-
-function formatEventType(eventType: AppEventType) {
-  return eventTypeLabels[eventType]
-}
-
-function getEventBoundaryHour(eventType: AppEventType) {
-  if (eventType === 'ATTENDANCE') return 0
-  if (eventType === 'STORY_CARD') return 6
-  return null
-}
-
-function hasBoundaryHour(dateTimeLocal: string, boundaryHour: number) {
-  const time = dateTimeLocal.split('T')[1]
-  return time === `${String(boundaryHour).padStart(2, '0')}:00`
-}
-
-function isCompleteLocalDateTime(value: string) {
-  return /^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d$/.test(value)
-}
-
-function updateDateTimePart(value: string, part: 'date' | 'hour' | 'minute', nextValue: string) {
-  const [currentDate = '', currentTime = ''] = value.split('T')
-  const [currentHour = '00', currentMinute = '00'] = currentTime.split(':')
-
-  if (part === 'date') {
-    return nextValue ? `${nextValue}T${currentHour || '00'}:${currentMinute || '00'}` : ''
-  }
-
-  if (!currentDate) return value
-  if (part === 'hour') return `${currentDate}T${nextValue}:${currentMinute || '00'}`
-  return `${currentDate}T${currentHour || '00'}:${nextValue}`
-}
-
-function normalizeTimePart(value: string, max: number) {
-  if (!value.trim()) return '00'
-  return String(Math.min(Math.max(Number(value), 0), max)).padStart(2, '0')
-}
-
-function rewardsToRows(rewards?: AttendanceRewards | null): RewardRow[] {
-  const rows = Object.entries(rewards ?? {}).map(([condition, value]) => ({
-    condition,
-    value: String(value),
-  }))
-
-  return rows.length > 0 ? rows : []
-}
-
-function parseRewardRows(rows: RewardRow[]):
-  | { ok: true; value: AttendanceRewards }
-  | { ok: false; message: string } {
-  const rewards: AttendanceRewards = {}
-
-  for (const row of rows) {
-    const condition = row.condition.trim()
-    const valueText = row.value.trim()
-
-    if (!condition && !valueText) continue
-
-    if (!condition || !valueText) {
-      return { ok: false, message: '보상 조건과 보상값을 모두 입력해주세요.' }
-    }
-
-    if (!/^\d+$/.test(condition) || Number(condition) < 1) {
-      return { ok: false, message: '보상 조건은 1 이상의 출석일로 입력해주세요.' }
-    }
-
-    if (!/^\d+$/.test(valueText)) {
-      return { ok: false, message: '보상값은 0 이상의 정수로 입력해주세요.' }
-    }
-
-    if (Object.hasOwn(rewards, condition)) {
-      return { ok: false, message: '동일한 출석일 보상 조건을 중복해서 입력할 수 없습니다.' }
-    }
-
-    const value = Number(valueText)
-
-    rewards[condition] = value
-  }
-
-  const sortedEntries = Object.entries(rewards).sort(([left], [right]) => Number(left) - Number(right))
-  for (let index = 1; index < sortedEntries.length; index += 1) {
-    if (sortedEntries[index][1] < sortedEntries[index - 1][1]) {
-      return { ok: false, message: '출석일이 늘어날수록 누적 응모권 수가 줄어들 수 없습니다.' }
-    }
-  }
-
-  return { ok: true, value: rewards }
-}
-
-function getApiErrorInfo(error: unknown) {
-  const axiosError = error as AxiosError<ApiErrorBody>
-
-  return {
-    status: axiosError.response?.status,
-    code: axiosError.response?.data?.code,
-    message: axiosError.response?.data?.message,
-    data: axiosError.response?.data,
-  }
 }

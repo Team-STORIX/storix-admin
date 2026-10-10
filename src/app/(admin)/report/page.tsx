@@ -1,306 +1,169 @@
 'use client'
 
 import { FormEvent, useEffect, useState } from 'react'
-import { AxiosError } from 'axios'
 import {
   getReportList,
   getReportDetail,
   processReport,
-  type ReportListItem,
-  type ReportDetail,
-  type TargetType,
-  type ReportStatus,
   type ProcessAction,
+  type ReportDetail,
+  type ReportListItem,
+  type ReportListParams,
+  type ReportStatus,
+  type TargetType,
 } from '@/lib/api/report.api'
+import { formatLoadErrorMessage, getApiErrorInfo, getApiErrorMessage, logApiError } from '@/lib/api/errors'
+import { formatLocaleDateTime } from '@/lib/utils/date-format'
+import { PageHeader } from '@/components/admin/PageHeader'
+import { SearchBox } from '@/components/admin/SearchBox'
+import { Pagination } from '@/components/admin/Pagination'
+import { TableMessageRow } from '@/components/admin/Table'
+import {
+  reportColumnCount,
+  reportStatusLabels,
+  reportStatuses,
+  reportTargetTypeLabels,
+  reportTargetTypes,
+} from '@/features/report/lib/report-labels'
+import { ReportDetailView } from '@/features/report/ui/ReportDetailView'
+import { ReportProcessModal } from '@/features/report/ui/ReportProcessModal'
+import { ReportStatusBadge } from '@/features/report/ui/ReportStatusBadge'
 
-const targetTypeLabels: Record<TargetType, string> = {
-  FEED: '피드',
-  FEED_REPLY: '피드 댓글',
-  REVIEW: '리뷰',
-  TOPIC_ROOM: '토픽룸',
-  CHAT: '채팅',
-}
-
-const statusLabels: Record<ReportStatus, '접수' | '처리완료' | '반려'> = {
-  RECEIVED: '접수',
-  COMPLETED: '처리완료',
-  REJECTED: '반려',
-}
-
-const actionLabels: Record<ProcessAction, string> = {
-  CONTENT_DELETED: '콘텐츠 삭제',
-  ACCOUNT_SUSPENDED: '계정 정지',
-  ACCOUNT_DELETED: '계정 삭제',
-}
-
-type ApiErrorBody = {
-  code?: string
-  message?: string
-  fieldErrors?: unknown
-}
-
-const contentDeletableTargetTypes: TargetType[] = ['FEED', 'FEED_REPLY', 'REVIEW', 'CHAT']
+const ALL = '전체'
+type TargetTypeFilter = TargetType | typeof ALL
+type StatusFilter = ReportStatus | typeof ALL
 
 export default function ReportPage() {
   const [selectedReportId, setSelectedReportId] = useState<number | null>(null)
   const [selectedReportDetail, setSelectedReportDetail] = useState<ReportDetail | null>(null)
-  const [targetTypeFilter, setTargetTypeFilter] = useState<TargetType | '전체'>('전체')
+  const [targetTypeFilter, setTargetTypeFilter] = useState<TargetTypeFilter>(ALL)
   const [dateFilter, setDateFilter] = useState('')
-  const [statusFilter, setStatusFilter] = useState<ReportStatus | '전체'>('전체')
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>(ALL)
   const [reportedUserKeyword, setReportedUserKeyword] = useState('')
   const [appliedReportedUserKeyword, setAppliedReportedUserKeyword] = useState('')
   const [currentPage, setCurrentPage] = useState(0)
   const [showProcessModal, setShowProcessModal] = useState(false)
-  const [selectedActions, setSelectedActions] = useState<ProcessAction[]>([])
-  const [processComment, setProcessComment] = useState('')
   const [reports, setReports] = useState<ReportListItem[]>([])
   const [totalPages, setTotalPages] = useState(0)
   const [totalElements, setTotalElements] = useState(0)
   const [loading, setLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState('')
-
-  const targetTypes: Array<TargetType | '전체'> = ['전체', 'FEED', 'FEED_REPLY', 'REVIEW', 'TOPIC_ROOM', 'CHAT']
-  const statuses: Array<ReportStatus | '전체'> = ['전체', 'RECEIVED', 'REJECTED', 'COMPLETED']
+  const [reloadKey, setReloadKey] = useState(0)
 
   // 신고 목록 조회
   useEffect(() => {
+    let ignore = false
+
     const fetchReports = async () => {
       setLoading(true)
       setErrorMessage('')
-      const params: Parameters<typeof getReportList>[0] = {
-        page: currentPage,
+
+      const params: ReportListParams = { page: currentPage }
+      if (targetTypeFilter !== ALL) params.targetType = targetTypeFilter
+      if (statusFilter !== ALL) params.status = statusFilter
+      if (appliedReportedUserKeyword.trim()) {
+        params.reportedUserKeyword = appliedReportedUserKeyword.trim()
+      }
+      if (dateFilter) {
+        params.startAt = `${dateFilter}T00:00:00`
+        params.endAt = `${dateFilter}T23:59:59`
       }
 
       try {
-        if (targetTypeFilter !== '전체') params.targetType = targetTypeFilter
-        if (statusFilter !== '전체') params.status = statusFilter
-        if (appliedReportedUserKeyword.trim()) {
-          params.reportedUserKeyword = appliedReportedUserKeyword.trim()
-        }
-        if (dateFilter) {
-          params.startAt = `${dateFilter}T00:00:00`
-          params.endAt = `${dateFilter}T23:59:59`
-        }
-
         const response = await getReportList(params)
+        if (ignore) return
         if (response.isSuccess) {
           setReports(response.result.content)
           setTotalPages(response.result.totalPages)
           setTotalElements(response.result.totalElements)
         }
       } catch (error) {
-        const axiosError = error as AxiosError<{ message?: string; code?: string }>
-        const serverMessage = axiosError.response?.data?.message
-
+        if (ignore) return
+        const errorInfo = getApiErrorInfo(error)
         console.error(
-          `신고 목록 조회 실패: status=${axiosError.response?.status ?? 'unknown'}, message=${serverMessage ?? 'unknown'}, params=${JSON.stringify(params)}`
+          `신고 목록 조회 실패: status=${errorInfo.status ?? 'unknown'}, message=${errorInfo.message ?? 'unknown'}, params=${JSON.stringify(params)}`,
         )
-        console.error('신고 목록 조회 실패:', {
-          status: axiosError.response?.status,
-          data: axiosError.response?.data,
-          params,
-          error,
-        })
-        setErrorMessage(serverMessage ? `신고 목록을 불러오지 못했습니다. (${serverMessage})` : '신고 목록을 불러오지 못했습니다.')
+        logApiError('신고 목록 조회 실패:', error, { params })
+        setErrorMessage(formatLoadErrorMessage('신고 목록을 불러오지 못했습니다.', error))
       } finally {
-        setLoading(false)
+        if (!ignore) setLoading(false)
       }
     }
 
-    fetchReports()
-  }, [currentPage, targetTypeFilter, statusFilter, dateFilter, appliedReportedUserKeyword])
+    void fetchReports()
+
+    return () => {
+      ignore = true
+    }
+  }, [currentPage, targetTypeFilter, statusFilter, dateFilter, appliedReportedUserKeyword, reloadKey])
 
   // 신고 상세 조회
   useEffect(() => {
-    const fetchReportDetail = async () => {
-      if (!selectedReportId) {
-        setSelectedReportDetail(null)
-        return
-      }
+    if (!selectedReportId) {
+      setSelectedReportDetail(null)
+      return
+    }
 
-      try {
-        const response = await getReportDetail(selectedReportId)
-        if (response.isSuccess) {
+    let ignore = false
+
+    getReportDetail(selectedReportId)
+      .then((response) => {
+        if (!ignore && response.isSuccess) {
           setSelectedReportDetail(response.result)
         }
-      } catch (error) {
-        console.error('신고 상세 조회 실패:', error)
-      }
-    }
+      })
+      .catch((error) => {
+        if (!ignore) console.error('신고 상세 조회 실패:', error)
+      })
 
-    fetchReportDetail()
+    return () => {
+      ignore = true
+    }
   }, [selectedReportId])
 
-  const getStatusClass = (status: ReportStatus) => {
-    switch (status) {
-      case 'RECEIVED':
-        return 'badge n'
-      case 'COMPLETED':
-        return 'badge g'
-      case 'REJECTED':
-        return 'badge a'
-      default:
-        return 'badge n'
-    }
-  }
-
-  const handlePageChange = (page: number) => {
-    setCurrentPage(page)
+  /** 처리/반려 후 목록 화면으로 돌아가며 첫 페이지를 다시 조회한다. */
+  const backToListAndRefresh = () => {
+    setSelectedReportId(null)
+    setSelectedReportDetail(null)
+    setCurrentPage(0)
+    setReloadKey((key) => key + 1)
   }
 
   const handleReject = async () => {
     if (!selectedReportId || !selectedReportDetail) return
 
     try {
-      await processReport(selectedReportId, {
-        status: 'REJECTED',
-        processMemo: processComment || undefined,
-      })
-
-      // 목록 새로고침
-      setSelectedReportId(null)
-      setSelectedReportDetail(null)
-      setCurrentPage(0)
+      await processReport(selectedReportId, { status: 'REJECTED' })
+      backToListAndRefresh()
     } catch (error) {
       console.error('신고 반려 실패:', error)
       alert('신고 반려에 실패했습니다.')
     }
   }
 
-  const handleProcessClick = () => {
-    setShowProcessModal(true)
-    setSelectedActions([])
-    setProcessComment('')
-  }
-
-  const toggleAction = (action: ProcessAction) => {
-    setSelectedActions((prev) => {
-      if (prev.includes(action)) {
-        return prev.filter((item) => item !== action)
-      }
-
-      if (action === 'ACCOUNT_SUSPENDED') {
-        return [...prev.filter((item) => item !== 'ACCOUNT_DELETED'), action]
-      }
-
-      if (action === 'ACCOUNT_DELETED') {
-        return [...prev.filter((item) => item !== 'ACCOUNT_SUSPENDED'), action]
-      }
-
-      return [...prev, action]
-    })
-  }
-
-  const handleProcessConfirm = async () => {
-    if (!selectedReportId || selectedActions.length === 0) {
-      alert('처리 액션을 하나 이상 선택해주세요.')
-      return
-    }
-
-    if (
-      selectedActions.includes('CONTENT_DELETED') &&
-      selectedReportDetail &&
-      !contentDeletableTargetTypes.includes(selectedReportDetail.targetType)
-    ) {
-      alert(`${targetTypeLabels[selectedReportDetail.targetType]} 신고는 콘텐츠 삭제 처리를 할 수 없습니다.`)
-      return
-    }
+  const handleProcessConfirm = async (actions: ProcessAction[], memo: string) => {
+    if (!selectedReportId) return
 
     const payload = {
       status: 'COMPLETED' as const,
-      processActions: selectedActions,
-      processMemo: processComment.trim() || undefined,
+      processActions: actions,
+      processMemo: memo || undefined,
     }
 
     try {
       await processReport(selectedReportId, payload)
-
       setShowProcessModal(false)
-      // 목록 새로고침
-      setSelectedReportId(null)
-      setSelectedReportDetail(null)
-      setCurrentPage(0)
+      backToListAndRefresh()
     } catch (error) {
-      const axiosError = error as AxiosError<ApiErrorBody>
-      const serverMessage = axiosError.response?.data?.message
-      console.error('신고 처리 실패:', {
-        status: axiosError.response?.status,
-        code: axiosError.response?.data?.code,
-        message: serverMessage ?? (error instanceof Error ? error.message : undefined),
-        fieldErrors: axiosError.response?.data?.fieldErrors,
-        data: axiosError.response?.data,
+      logApiError('신고 처리 실패:', error, {
         reportCaseId: selectedReportId,
         targetType: selectedReportDetail?.targetType,
-        processActions: selectedActions.join(', '),
+        processActions: actions.join(', '),
         payload,
       })
-      console.table(axiosError.response?.data?.fieldErrors ?? [])
-      alert(serverMessage || '신고 처리에 실패했습니다.')
+      console.table(getApiErrorInfo(error).fieldErrors ?? [])
+      alert(getApiErrorMessage(error, '신고 처리에 실패했습니다.'))
     }
-  }
-
-  const renderPagination = () => {
-    if (totalPages <= 1) return null
-
-    const pages = []
-    const maxVisiblePages = 5
-    const displayPage = currentPage + 1
-
-    if (totalPages <= maxVisiblePages) {
-      for (let i = 1; i <= totalPages; i++) {
-        pages.push(i)
-      }
-    } else {
-      if (displayPage <= 3) {
-        pages.push(1, 2, 3, 4, -1, totalPages)
-      } else if (displayPage >= totalPages - 2) {
-        pages.push(1, -1, totalPages - 3, totalPages - 2, totalPages - 1, totalPages)
-      } else {
-        pages.push(1, -1, displayPage - 1, displayPage, displayPage + 1, -2, totalPages)
-      }
-    }
-
-    return (
-      <div className="pagination">
-        <button
-          className="pagination-button"
-          onClick={() => handlePageChange(currentPage - 1)}
-          disabled={currentPage === 0}
-          type="button"
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="m15 18-6-6 6-6" />
-          </svg>
-        </button>
-
-        {pages.map((page, index) => {
-          if (page === -1 || page === -2) {
-            return <span key={`ellipsis-${index}`} className="pagination-ellipsis">...</span>
-          }
-          return (
-            <button
-              key={page}
-              className={`pagination-button ${displayPage === page ? 'active' : ''}`}
-              onClick={() => handlePageChange(page - 1)}
-              type="button"
-            >
-              {page}
-            </button>
-          )
-        })}
-
-        <button
-          className="pagination-button"
-          onClick={() => handlePageChange(currentPage + 1)}
-          disabled={currentPage >= totalPages - 1}
-          type="button"
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="m9 18 6-6-6-6" />
-          </svg>
-        </button>
-      </div>
-    )
   }
 
   const handleSearchSubmit = (event: FormEvent<HTMLFormElement>) => {
@@ -309,37 +172,27 @@ export default function ReportPage() {
     setAppliedReportedUserKeyword(reportedUserKeyword)
   }
 
+  const resetSearch = () => {
+    setReportedUserKeyword('')
+    setAppliedReportedUserKeyword('')
+    setCurrentPage(0)
+  }
+
   return (
     <div className="report-page-container">
       {!selectedReportDetail ? (
         <>
-          <div className="page-head">
-            <div>
-              <h1>신고 관리</h1>
-              <p className="page-sub">신고 접수 목록</p>
-            </div>
-          </div>
+          <PageHeader title="신고 관리" description="신고 접수 목록" />
 
           <form className="toolbar" onSubmit={handleSearchSubmit}>
-            <div className="search-box">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="11" cy="11" r="7" />
-                <path d="m21 21-4.3-4.3" />
-              </svg>
-              <input
-                type="text"
-                placeholder="피신고자 닉네임 검색"
-                value={reportedUserKeyword}
-                onChange={(event) => setReportedUserKeyword(event.target.value)}
-              />
-            </div>
+            <SearchBox value={reportedUserKeyword} onChange={setReportedUserKeyword} placeholder="피신고자 닉네임 검색" />
 
             <div className="select-wrap">
-              <select value={targetTypeFilter} onChange={(e) => setTargetTypeFilter(e.target.value as TargetType | '전체')}>
-                <option value="전체">신고 유형</option>
-                {targetTypes.filter(t => t !== '전체').map((type) => (
+              <select value={targetTypeFilter} onChange={(event) => setTargetTypeFilter(event.target.value as TargetTypeFilter)}>
+                <option value={ALL}>신고 유형</option>
+                {reportTargetTypes.map((type) => (
                   <option key={type} value={type}>
-                    {targetTypeLabels[type as TargetType]}
+                    {reportTargetTypeLabels[type]}
                   </option>
                 ))}
               </select>
@@ -349,18 +202,18 @@ export default function ReportPage() {
               <input
                 type="date"
                 value={dateFilter}
-                onChange={(e) => setDateFilter(e.target.value)}
+                onChange={(event) => setDateFilter(event.target.value)}
                 className="date-input"
                 placeholder="신고일자"
               />
             </div>
 
             <div className="select-wrap">
-              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as ReportStatus | '전체')}>
-                <option value="전체">처리 상태</option>
-                {statuses.filter(s => s !== '전체').map((status) => (
+              <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}>
+                <option value={ALL}>처리 상태</option>
+                {reportStatuses.map((status) => (
                   <option key={status} value={status}>
-                    {statusLabels[status as ReportStatus]}
+                    {reportStatusLabels[status]}
                   </option>
                 ))}
               </select>
@@ -370,15 +223,7 @@ export default function ReportPage() {
               검색
             </button>
             {appliedReportedUserKeyword ? (
-              <button
-                className="btn-reject"
-                onClick={() => {
-                  setReportedUserKeyword('')
-                  setAppliedReportedUserKeyword('')
-                  setCurrentPage(0)
-                }}
-                type="button"
-              >
+              <button className="btn-reject" onClick={resetSearch} type="button">
                 초기화
               </button>
             ) : null}
@@ -408,205 +253,45 @@ export default function ReportPage() {
                   </thead>
                   <tbody>
                     {reports.length === 0 ? (
-                      <tr>
-                        <td colSpan={6}>신고 내역이 없습니다.</td>
-                      </tr>
-                    ) : reports.map((report) => (
-                      <tr key={report.reportCaseId} className="event-row" onClick={() => setSelectedReportId(report.reportCaseId)}>
-                        <td>{report.reportCaseId}</td>
-                        <td>{targetTypeLabels[report.targetType]}</td>
-                        <td>{report.reportedUserNickName} (U-{report.reportedUserId})</td>
-                        <td>{report.reportCount}건</td>
-                        <td className="period">{new Date(report.createdAt).toLocaleString('ko-KR')}</td>
-                        <td>
-                          <span className={getStatusClass(report.status)}>
-                            <span className="bdot"></span>
-                            {statusLabels[report.status]}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
+                      <TableMessageRow colSpan={reportColumnCount}>신고 내역이 없습니다.</TableMessageRow>
+                    ) : (
+                      reports.map((report) => (
+                        <tr key={report.reportCaseId} className="event-row" onClick={() => setSelectedReportId(report.reportCaseId)}>
+                          <td>{report.reportCaseId}</td>
+                          <td>{reportTargetTypeLabels[report.targetType]}</td>
+                          <td>{report.reportedUserNickName} (U-{report.reportedUserId})</td>
+                          <td>{report.reportCount}건</td>
+                          <td className="period">{formatLocaleDateTime(report.createdAt)}</td>
+                          <td>
+                            <ReportStatusBadge status={report.status} />
+                          </td>
+                        </tr>
+                      ))
+                    )}
                   </tbody>
                 </table>
               </div>
 
-              {renderPagination()}
+              <Pagination currentPage={currentPage} totalPages={totalPages} onChange={setCurrentPage} maxVisiblePages={5} />
             </>
           )}
         </>
       ) : (
-        <div className="report-detail-container">
-          <div className="page-head">
-            <div>
-              <h1>신고 정보 요약</h1>
-              <p className="page-sub">
-                <span className={getStatusClass(selectedReportDetail.status)}>
-                  <span className="bdot"></span>
-                  {statusLabels[selectedReportDetail.status]}
-                </span>
-              </p>
-            </div>
-          </div>
-
-          <div className="report-detail-panel">
-            <div className="report-detail-row">
-              <span className="detail-label">신고 유형</span>
-              <span className="detail-value">{targetTypeLabels[selectedReportDetail.targetType]}</span>
-            </div>
-            <div className="report-detail-row">
-              <span className="detail-label">피신고 대상</span>
-              <span className="detail-value report-highlight">
-                {selectedReportDetail.summary.reportedUserNickName} (U-{selectedReportDetail.summary.reportedUserId})
-              </span>
-            </div>
-            <div className="report-detail-row">
-              <span className="detail-label">신고 건수</span>
-              <span className="detail-value">{selectedReportDetail.summary.reportCount}건</span>
-            </div>
-            <div className="report-detail-row">
-              <span className="detail-label">신고 사유</span>
-              <span className="detail-value">{selectedReportDetail.summary.reason}</span>
-            </div>
-            <div className="report-detail-row">
-              <span className="detail-label">신고 발생 위치</span>
-              <span className="detail-value">{selectedReportDetail.summary.location}</span>
-            </div>
-            <div className="report-detail-row">
-              <span className="detail-label">최초 신고일시</span>
-              <span className="detail-value">{new Date(selectedReportDetail.summary.firstReportedAt).toLocaleString('ko-KR')}</span>
-            </div>
-
-            <div className="report-content-section">
-              <h3>피신고 콘텐츠 원문</h3>
-              <div className="report-content-box">
-                <p className="content-meta">
-                  {selectedReportDetail.reportedContent.authorNickName} · {new Date(selectedReportDetail.reportedContent.createdAt).toLocaleString('ko-KR')}
-                </p>
-                <p className="content-text">{selectedReportDetail.reportedContent.content}</p>
-              </div>
-            </div>
-
-            {selectedReportDetail.processActions?.length ? (
-              <div className="report-detail-row">
-                <span className="detail-label">조치 및 코멘트</span>
-                <span className="detail-value" style={{ color: '#dc2626' }}>
-                  {(selectedReportDetail.processActions ?? []).map((action) => actionLabels[action]).join(', ')}
-                  {selectedReportDetail.processMemo && ` / ${selectedReportDetail.processMemo}`}
-                </span>
-              </div>
-            ) : null}
-
-            {selectedReportDetail.reports.length > 0 ? (
-              <div className="report-content-section">
-                <h3>묶인 신고 목록</h3>
-                <div className="report-content-box">
-                  {selectedReportDetail.reports.map((report) => (
-                    <p key={report.reportId} className="content-meta">
-                      #{report.reportId} {report.reporterNickName} · {report.reason}
-                      {report.otherReason ? ` / ${report.otherReason}` : ''} · {new Date(report.reportedAt).toLocaleString('ko-KR')}
-                    </p>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-
-            {selectedReportDetail.reportedContent.chatMessages?.length ? (
-              <div className="report-content-section">
-                <h3>채팅 신고 메시지</h3>
-                <div className="report-content-box">
-                  {selectedReportDetail.reportedContent.chatMessages.map((message) => (
-                    <p key={message.messageId} className="content-text">
-                      {message.senderNickName} · {message.messageType} · {new Date(message.createdAt).toLocaleString('ko-KR')}
-                      <br />
-                      {message.message}
-                    </p>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-
-            <div className="report-actions">
-              <button className="btn-back" onClick={() => setSelectedReportId(null)}>
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="m15 18-6-6 6-6" />
-                </svg>
-                목록으로
-              </button>
-              {selectedReportDetail.status === 'RECEIVED' && (
-                <div className="action-buttons">
-                  <button className="btn-reject" onClick={handleReject}>
-                    반려
-                  </button>
-                  <button className="btn-approve" onClick={handleProcessClick}>
-                    처리
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
+        <ReportDetailView
+          detail={selectedReportDetail}
+          onBack={() => setSelectedReportId(null)}
+          onReject={() => void handleReject()}
+          onProcess={() => setShowProcessModal(true)}
+        />
       )}
 
-      {/* 신고 처리 모달 */}
-      {showProcessModal && (
-        <div className="modal-overlay" onClick={() => setShowProcessModal(false)}>
-          <div className="modal-container" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>신고 처리</h2>
-              <p>복수 액션을 적용할 수 있습니다. 계정 정지와 계정 삭제는 동시에 적용할 수 없습니다.</p>
-            </div>
-
-            <div className="modal-body">
-              <div className="action-checkboxes">
-                {(['CONTENT_DELETED', 'ACCOUNT_SUSPENDED', 'ACCOUNT_DELETED'] as ProcessAction[]).map((action) => {
-                  const isContentDeleteDisabled =
-                    action === 'CONTENT_DELETED' &&
-                    selectedReportDetail != null &&
-                    !contentDeletableTargetTypes.includes(selectedReportDetail.targetType)
-
-                  return (
-                  <label key={action} className={`action-checkbox ${selectedActions.includes(action) ? 'checked' : ''} ${isContentDeleteDisabled ? 'disabled' : ''}`}>
-                    <input
-                      type="checkbox"
-                      checked={selectedActions.includes(action)}
-                      disabled={isContentDeleteDisabled}
-                      onChange={() => toggleAction(action)}
-                    />
-                    <div className="checkbox-content">
-                      <div className="checkbox-title">{actionLabels[action]}</div>
-                      <div className="checkbox-desc">
-                        {action === 'CONTENT_DELETED' && '피신고 콘텐츠 삭제'}
-                        {action === 'ACCOUNT_SUSPENDED' && '피신고 유저 7일 일시 정지 · 팝업 시 메세지 활성화'}
-                        {action === 'ACCOUNT_DELETED' && '피신고 유저 강제 탈퇴'}
-                      </div>
-                    </div>
-                  </label>
-                  )
-                })}
-              </div>
-
-              <div className="modal-comment-section">
-                <label className="comment-label">내부기록용 메모 작성해 주세요.</label>
-                <textarea
-                  className="comment-textarea"
-                  placeholder="내부 기록용 메모 입력"
-                  value={processComment}
-                  onChange={(e) => setProcessComment(e.target.value)}
-                />
-              </div>
-            </div>
-
-            <div className="modal-footer">
-              <button className="btn-modal-cancel" onClick={() => setShowProcessModal(false)}>
-                취소
-              </button>
-              <button className="btn-modal-confirm" onClick={handleProcessConfirm}>
-                처리 완료 확정
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {showProcessModal && selectedReportDetail ? (
+        <ReportProcessModal
+          targetType={selectedReportDetail.targetType}
+          onClose={() => setShowProcessModal(false)}
+          onConfirm={handleProcessConfirm}
+        />
+      ) : null}
     </div>
   )
 }
