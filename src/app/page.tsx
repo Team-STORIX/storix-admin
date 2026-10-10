@@ -2,8 +2,11 @@
 
 import { FormEvent, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { AxiosError } from 'axios'
 import { adminLogin } from '@/lib/api/auth.api'
+import { getApiErrorMessage } from '@/lib/api/errors'
+import { storeAccessToken } from '@/lib/auth/access-token'
+
+const LOGIN_FAILED_MESSAGE = '로그인에 실패했습니다.\n이메일과 비밀번호를 확인해주세요.'
 
 export default function Home() {
   const router = useRouter()
@@ -21,25 +24,16 @@ export default function Home() {
       const response = await adminLogin({ email, password })
 
       if (response.isSuccess && response.result.accessToken) {
-        // 액세스 토큰을 로컬스토리지에 저장
-        localStorage.setItem('accessToken', response.result.accessToken)
-
-        // 미들웨어 체크를 위해 쿠키에도 저장
-        document.cookie = `accessToken=${response.result.accessToken}; path=/; max-age=${60 * 60 * 24 * 7}; SameSite=Lax`
-
-        // 리프레시 토큰은 쿠키로 자동 저장됨 (withCredentials: true)
-
-        // 관리자 페이지로 이동
+        // 액세스 토큰은 localStorage(요청 헤더) + 쿠키(미들웨어 체크)에 저장한다.
+        // 리프레시 토큰은 서버가 내려주는 쿠키로 자동 저장됨 (withCredentials: true)
+        storeAccessToken(response.result.accessToken)
         router.push('/home')
       } else {
         setError(response.message || '로그인에 실패했습니다.')
       }
     } catch (err) {
       console.error('로그인 실패:', err)
-
-      const axiosError = err as AxiosError<{ message?: string }>
-      const errorMessage = axiosError.response?.data?.message || '로그인에 실패했습니다.\n이메일과 비밀번호를 확인해주세요.'
-      setError(errorMessage)
+      setError(getApiErrorMessage(err, LOGIN_FAILED_MESSAGE))
     } finally {
       setIsLoading(false)
     }
@@ -89,7 +83,6 @@ export default function Home() {
           </button>
           {error && <p className="login-message">{error}</p>}
         </form>
-
       </section>
     </main>
   )

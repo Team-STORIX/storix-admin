@@ -1,4 +1,6 @@
 import { apiClient } from './axios-instance'
+import { buildMultipartBody } from './multipart'
+import type { ApiEnvelope, PageResult } from './types'
 
 export type PopupStatus = 'SCHEDULED' | 'ACTIVE' | 'ENDED' | 'CANCELED'
 export type PopupContentTargetType = 'APP_EVENT'
@@ -31,69 +33,36 @@ export type AdminPopupPayload = {
   displayEndAt: string
 }
 
-export type ApiEnvelope<T> = {
-  isSuccess: boolean
-  code: string
-  message: string
-  result: T
-  timestamp: string
-}
+export type AdminPopupListResult = PageResult<AdminPopup>
 
-export type AdminPopupListResult = {
-  content: AdminPopup[]
-  page: number
-  size: number
-  totalElements: number
-  totalPages: number
-  hasNext: boolean
-}
+const BASE = '/api/v1/admin/popups'
 
-export const getAdminPopups = async (
-  page = 0,
-  keyword?: string,
-): Promise<ApiEnvelope<AdminPopupListResult>> => {
-  const response = await apiClient.get('/api/v1/admin/popups', {
-    params: {
-      page,
-      ...(keyword ? { keyword } : {}),
-    },
+export const getAdminPopups = async (page = 0, keyword?: string) => {
+  const response = await apiClient.get<ApiEnvelope<AdminPopupListResult>>(BASE, {
+    params: { page, ...(keyword ? { keyword } : {}) },
   })
   return response.data
 }
 
-export const getAdminPopup = async (popupId: number): Promise<ApiEnvelope<AdminPopup>> => {
-  const response = await apiClient.get(`/api/v1/admin/popups/${popupId}`)
+export const getAdminPopup = async (popupId: number) => {
+  const response = await apiClient.get<ApiEnvelope<AdminPopup>>(`${BASE}/${popupId}`)
   return response.data
 }
 
-export const createAdminPopup = async (
-  data: AdminPopupPayload,
-  file: File,
-): Promise<ApiEnvelope<AdminPopup>> => {
-  const formData = new FormData()
-  formData.append('data', new Blob([JSON.stringify(data)], { type: 'application/json' }))
-  formData.append('file', file)
-
-  const response = await apiClient.post('/api/v1/admin/popups', formData)
+export const createAdminPopup = async (data: AdminPopupPayload, file: File) => {
+  const response = await apiClient.post<ApiEnvelope<AdminPopup>>(BASE, buildMultipartBody(data, file))
   return response.data
 }
 
-export const updateAdminPopup = async (
-  popupId: number,
-  data: AdminPopupPayload,
-  file?: File | null,
-): Promise<ApiEnvelope<AdminPopup>> => {
-  const formData = new FormData()
-  formData.append('data', new Blob([JSON.stringify(data)], { type: 'application/json' }))
-  if (file) {
-    formData.append('file', file)
-  }
-
-  const response = await apiClient.put(`/api/v1/admin/popups/${popupId}`, formData)
+export const updateAdminPopup = async (popupId: number, data: AdminPopupPayload, file?: File | null) => {
+  const response = await apiClient.put<ApiEnvelope<AdminPopup>>(
+    `${BASE}/${popupId}`,
+    buildMultipartBody(data, file),
+  )
   return response.data
 }
 
-export const cancelAdminPopup = async (popupId: number): Promise<ApiEnvelope<AdminPopup>> => {
-  const response = await apiClient.patch(`/api/v1/admin/popups/${popupId}/cancel`)
+export const cancelAdminPopup = async (popupId: number) => {
+  const response = await apiClient.patch<ApiEnvelope<AdminPopup>>(`${BASE}/${popupId}/cancel`)
   return response.data
 }

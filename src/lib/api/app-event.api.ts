@@ -1,8 +1,12 @@
 import { apiClient } from './axios-instance'
+import type { ApiEnvelope, PageResult } from './types'
+
+export type { ApiEnvelope } from './types'
 
 export type AppEventStatus = 'SCHEDULED' | 'ACTIVE' | 'ENDED' | 'CANCELED'
 export type AppEventType = 'GENERAL' | 'ATTENDANCE' | 'STORY_CARD'
 export type PromotionType = 'PUSH' | 'POPUP' | 'BANNER'
+/** 출석일(문자열) → 누적 응모권 수 */
 export type AttendanceRewards = Record<string, number>
 
 export type AppEvent = {
@@ -57,77 +61,47 @@ export type AttendanceEventWinnerResult = {
   winners: AttendanceEventWinner[]
 }
 
-export type ApiEnvelope<T> = {
-  isSuccess: boolean
-  code: string
-  message: string
-  result: T
-  timestamp: string
-}
+export type AppEventListResult = PageResult<AppEvent>
 
-export type AppEventListResult = {
-  content: AppEvent[]
-  page: number
-  size: number
-  totalElements: number
-  totalPages: number
-  hasNext: boolean
-}
+const BASE = '/api/v1/admin/app-events'
 
-export const getAppEvents = async (
-  page = 0,
-  keyword?: string,
-): Promise<ApiEnvelope<AppEventListResult>> => {
-  const response = await apiClient.get('/api/v1/admin/app-events', {
-    params: {
-      page,
-      ...(keyword ? { keyword } : {}),
-    },
+export const getAppEvents = async (page = 0, keyword?: string) => {
+  const response = await apiClient.get<ApiEnvelope<AppEventListResult>>(BASE, {
+    params: { page, ...(keyword ? { keyword } : {}) },
   })
   return response.data
 }
 
-export const getAppEvent = async (appEventId: number): Promise<ApiEnvelope<AppEvent>> => {
-  const response = await apiClient.get(`/api/v1/admin/app-events/${appEventId}`)
+export const getAppEvent = async (appEventId: number) => {
+  const response = await apiClient.get<ApiEnvelope<AppEvent>>(`${BASE}/${appEventId}`)
   return response.data
 }
 
-export const createAppEvent = async (
-  data: AppEventPayload,
-): Promise<ApiEnvelope<AppEvent>> => {
-  const response = await apiClient.post('/api/v1/admin/app-events', data)
+export const createAppEvent = async (data: AppEventPayload) => {
+  const response = await apiClient.post<ApiEnvelope<AppEvent>>(BASE, data)
   return response.data
 }
 
-export const updateAppEvent = async (
-  appEventId: number,
-  data: AppEventPayload,
-): Promise<ApiEnvelope<AppEvent>> => {
-  const response = await apiClient.put(`/api/v1/admin/app-events/${appEventId}`, data)
+export const updateAppEvent = async (appEventId: number, data: AppEventPayload) => {
+  const response = await apiClient.put<ApiEnvelope<AppEvent>>(`${BASE}/${appEventId}`, data)
   return response.data
 }
 
-export const cancelAppEvent = async (
-  appEventId: number,
-): Promise<ApiEnvelope<AppEvent>> => {
-  const response = await apiClient.patch(`/api/v1/admin/app-events/${appEventId}/cancel`)
+export const cancelAppEvent = async (appEventId: number) => {
+  const response = await apiClient.patch<ApiEnvelope<AppEvent>>(`${BASE}/${appEventId}/cancel`)
   return response.data
 }
 
-export const drawAppEventWinners = async (
-  appEventId: number,
-  winnerCount: number,
-): Promise<ApiEnvelope<AppEventWinnerDrawResult>> => {
-  const response = await apiClient.post(`/api/v1/admin/app-events/${appEventId}/winners`, {
-    winnerCount,
-  })
+export const drawAppEventWinners = async (appEventId: number, winnerCount: number) => {
+  const response = await apiClient.post<ApiEnvelope<AppEventWinnerDrawResult>>(
+    `${BASE}/${appEventId}/winners`,
+    { winnerCount },
+  )
   return response.data
 }
 
-export const getAttendanceEventWinners = async (
-  appEventId: number,
-): Promise<ApiEnvelope<AttendanceEventWinnerResult>> => {
-  const response = await apiClient.get(
+export const getAttendanceEventWinners = async (appEventId: number) => {
+  const response = await apiClient.get<ApiEnvelope<AttendanceEventWinnerResult>>(
     `/api/v1/admin/attendance-events/${appEventId}/winners`,
   )
   return response.data

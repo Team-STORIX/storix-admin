@@ -1,4 +1,6 @@
 import { apiClient } from './axios-instance'
+import { buildMultipartBody } from './multipart'
+import type { ApiEnvelope, PageResult } from './types'
 
 export type BannerStatus = 'SCHEDULED' | 'ACTIVE' | 'ENDED' | 'CANCELED'
 export type BannerContentTargetType = 'APP_EVENT'
@@ -24,69 +26,36 @@ export type AdminBannerPayload = {
   displayEndAt: string
 }
 
-export type ApiEnvelope<T> = {
-  isSuccess: boolean
-  code: string
-  message: string
-  result: T
-  timestamp: string
-}
+export type AdminBannerListResult = PageResult<AdminBanner>
 
-export type AdminBannerListResult = {
-  content: AdminBanner[]
-  page: number
-  size: number
-  totalElements: number
-  totalPages: number
-  hasNext: boolean
-}
+const BASE = '/api/v1/admin/banners'
 
-export const getAdminBanners = async (
-  page = 0,
-  keyword?: string,
-): Promise<ApiEnvelope<AdminBannerListResult>> => {
-  const response = await apiClient.get('/api/v1/admin/banners', {
-    params: {
-      page,
-      ...(keyword ? { keyword } : {}),
-    },
+export const getAdminBanners = async (page = 0, keyword?: string) => {
+  const response = await apiClient.get<ApiEnvelope<AdminBannerListResult>>(BASE, {
+    params: { page, ...(keyword ? { keyword } : {}) },
   })
   return response.data
 }
 
-export const getAdminBanner = async (bannerId: number): Promise<ApiEnvelope<AdminBanner>> => {
-  const response = await apiClient.get(`/api/v1/admin/banners/${bannerId}`)
+export const getAdminBanner = async (bannerId: number) => {
+  const response = await apiClient.get<ApiEnvelope<AdminBanner>>(`${BASE}/${bannerId}`)
   return response.data
 }
 
-export const createAdminBanner = async (
-  data: AdminBannerPayload,
-  file: File,
-): Promise<ApiEnvelope<AdminBanner>> => {
-  const formData = new FormData()
-  formData.append('data', new Blob([JSON.stringify(data)], { type: 'application/json' }))
-  formData.append('file', file)
-
-  const response = await apiClient.post('/api/v1/admin/banners', formData)
+export const createAdminBanner = async (data: AdminBannerPayload, file: File) => {
+  const response = await apiClient.post<ApiEnvelope<AdminBanner>>(BASE, buildMultipartBody(data, file))
   return response.data
 }
 
-export const updateAdminBanner = async (
-  bannerId: number,
-  data: AdminBannerPayload,
-  file?: File | null,
-): Promise<ApiEnvelope<AdminBanner>> => {
-  const formData = new FormData()
-  formData.append('data', new Blob([JSON.stringify(data)], { type: 'application/json' }))
-  if (file) {
-    formData.append('file', file)
-  }
-
-  const response = await apiClient.put(`/api/v1/admin/banners/${bannerId}`, formData)
+export const updateAdminBanner = async (bannerId: number, data: AdminBannerPayload, file?: File | null) => {
+  const response = await apiClient.put<ApiEnvelope<AdminBanner>>(
+    `${BASE}/${bannerId}`,
+    buildMultipartBody(data, file),
+  )
   return response.data
 }
 
-export const cancelAdminBanner = async (bannerId: number): Promise<ApiEnvelope<AdminBanner>> => {
-  const response = await apiClient.patch(`/api/v1/admin/banners/${bannerId}/cancel`)
+export const cancelAdminBanner = async (bannerId: number) => {
+  const response = await apiClient.patch<ApiEnvelope<AdminBanner>>(`${BASE}/${bannerId}/cancel`)
   return response.data
 }

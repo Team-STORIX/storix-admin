@@ -1,4 +1,5 @@
 import { apiClient } from './axios-instance'
+import type { ApiEnvelope, PageQuery } from './types'
 
 export type TargetType = 'FEED' | 'FEED_REPLY' | 'REVIEW' | 'TOPIC_ROOM' | 'CHAT'
 export type ReportStatus = 'RECEIVED' | 'REJECTED' | 'COMPLETED'
@@ -19,22 +20,28 @@ export type ReportListItem = {
   reopened: boolean
 }
 
-export type ReportListResponse = {
-  isSuccess: boolean
-  code: string
+/** 신고 목록은 Spring Page 형태 그대로 내려온다. */
+export type ReportListResult = {
+  totalPages: number
+  totalElements: number
+  last: boolean
+  first: boolean
+  numberOfElements: number
+  size: number
+  content: ReportListItem[]
+  number: number
+  empty: boolean
+}
+
+export type ReportListResponse = ApiEnvelope<ReportListResult>
+
+export type ReportChatMessage = {
+  messageId: number
+  senderId: number
+  senderNickName: string
   message: string
-  result: {
-    totalPages: number
-    totalElements: number
-    last: boolean
-    first: boolean
-    numberOfElements: number
-    size: number
-    content: ReportListItem[]
-    number: number
-    empty: boolean
-  }
-  timestamp: string
+  messageType: string
+  createdAt: string
 }
 
 export type ReportDetail = {
@@ -74,23 +81,19 @@ export type ReportDetail = {
     authorNickName: string
     content: string
     createdAt: string
-    chatMessages?: Array<{
-      messageId: number
-      senderId: number
-      senderNickName: string
-      message: string
-      messageType: string
-      createdAt: string
-    }>
+    chatMessages?: ReportChatMessage[]
   }
 }
 
-export type ReportDetailResponse = {
-  isSuccess: boolean
-  code: string
-  message: string
-  result: ReportDetail
-  timestamp: string
+export type ReportDetailResponse = ApiEnvelope<ReportDetail>
+
+export type ReportListParams = PageQuery & {
+  targetType?: TargetType
+  status?: ReportStatus
+  startAt?: string
+  endAt?: string
+  reportedUserId?: number
+  reportedUserKeyword?: string
 }
 
 export type ProcessReportRequest = {
@@ -99,47 +102,30 @@ export type ProcessReportRequest = {
   processMemo?: string
 }
 
-export type ProcessReportResponse = {
-  isSuccess: boolean
-  code: string
-  message: string
-  result: object
-  timestamp: string
-}
+export type ProcessReportResponse = ApiEnvelope<object>
+
+const BASE = '/api/v1/admin/reports'
 
 /**
  * 신고 목록 조회
  */
-export const getReportList = async (params?: {
-  targetType?: TargetType
-  status?: ReportStatus
-  startAt?: string
-  endAt?: string
-  reportedUserId?: number
-  reportedUserKeyword?: string
-  page?: number
-  size?: number
-  sort?: string[]
-}): Promise<ReportListResponse> => {
-  const response = await apiClient.get('/api/v1/admin/reports', { params })
+export const getReportList = async (params?: ReportListParams) => {
+  const response = await apiClient.get<ReportListResponse>(BASE, { params })
   return response.data
 }
 
 /**
  * 신고 상세 조회
  */
-export const getReportDetail = async (reportCaseId: number): Promise<ReportDetailResponse> => {
-  const response = await apiClient.get(`/api/v1/admin/reports/${reportCaseId}`)
+export const getReportDetail = async (reportCaseId: number) => {
+  const response = await apiClient.get<ReportDetailResponse>(`${BASE}/${reportCaseId}`)
   return response.data
 }
 
 /**
  * 신고 처리
  */
-export const processReport = async (
-  reportCaseId: number,
-  data: ProcessReportRequest
-): Promise<ProcessReportResponse> => {
-  const response = await apiClient.patch(`/api/v1/admin/reports/${reportCaseId}`, data)
+export const processReport = async (reportCaseId: number, data: ProcessReportRequest) => {
+  const response = await apiClient.patch<ProcessReportResponse>(`${BASE}/${reportCaseId}`, data)
   return response.data
 }

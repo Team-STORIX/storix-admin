@@ -3,13 +3,15 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useEffect, useState } from 'react'
-import { getAdminProfile } from '@/lib/api/auth.api'
+import { getAdminProfile, type AdminProfile } from '@/lib/api/auth.api'
+
+type MenuChild = { href: string; label: string }
 
 type MenuItem = {
   href: string
   label: string
   icon: string
-  children?: Array<{ href: string; label: string }>
+  children?: MenuChild[]
 }
 
 const menuItems: MenuItem[] = [
@@ -38,26 +40,21 @@ const profileImages: Record<string, string> = {
   허유진: '/profiles/yu.webp',
 }
 
+const activeClass = (base: string, isActive: boolean) => `${base} ${isActive ? 'active' : ''}`
+
 export function Sidebar() {
   const pathname = usePathname()
-  const [profile, setProfile] = useState<{
-    nickName: string
-    email: string
-  } | null>(null)
+  const [profile, setProfile] = useState<AdminProfile | null>(null)
 
   useEffect(() => {
     let mounted = true
 
     getAdminProfile()
       .then((response) => {
-        if (mounted && response.isSuccess) {
-          setProfile(response.result)
-        }
+        if (mounted) setProfile(response.isSuccess ? response.result : null)
       })
       .catch(() => {
-        if (mounted) {
-          setProfile(null)
-        }
+        if (mounted) setProfile(null)
       })
 
     return () => {
@@ -77,35 +74,26 @@ export function Sidebar() {
 
         <nav className="sidebar-nav" aria-label="관리자 메뉴">
           {menuItems.map((item) => {
-            const hasChildren = item.children && item.children.length > 0
-            const isActive = pathname === item.href
-            const hasActiveChild = hasChildren
-              ? item.children!.some((child) => pathname === child.href)
-              : false
+            const children = item.children ?? []
+            const isActive = pathname === item.href || children.some((child) => pathname === child.href)
 
             return (
               <div key={item.label} className="sidebar-menu-item">
-                <Link
-                  className={`sidebar-menu-link ${isActive || hasActiveChild ? 'active' : ''}`}
-                  href={item.href}
-                >
+                <Link className={activeClass('sidebar-menu-link', isActive)} href={item.href}>
                   <span aria-hidden="true">{item.icon}</span>
                   {item.label}
                 </Link>
-                {hasChildren ? (
+                {children.length > 0 ? (
                   <div className="sidebar-submenu">
-                    {item.children!.map((child) => {
-                      const isChildActive = pathname === child.href
-                      return (
-                        <Link
-                          key={child.href}
-                          className={`sidebar-submenu-link ${isChildActive ? 'active' : ''}`}
-                          href={child.href}
-                        >
-                          {child.label}
-                        </Link>
-                      )
-                    })}
+                    {children.map((child) => (
+                      <Link
+                        key={child.href}
+                        className={activeClass('sidebar-submenu-link', pathname === child.href)}
+                        href={child.href}
+                      >
+                        {child.label}
+                      </Link>
+                    ))}
                   </div>
                 ) : null}
               </div>
